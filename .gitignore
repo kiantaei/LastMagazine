@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+build/
+web/index.html
+web/index.js
+web/index.wasm
+web/index.data
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+
+# IDE & system
+.vscode/
+.idea/
+*.swp
+*.DS_Store

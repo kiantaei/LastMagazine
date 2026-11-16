@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAST MAGAZINE - Every Bullet Is A Decision</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            background-color: #080a0f;
+            color: #d1d8e0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        .tactical-frame {
+            position: relative;
+            width: 1280px;
+            max-width: 98vw;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #1e2836;
+            background: #0f141d;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(20, 160, 220, 0.15);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .tactical-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            background: linear-gradient(90deg, #121924, #0b1017);
+            border-bottom: 1px solid #233142;
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            color: #00d2ff;
+        }
+        .header-badge {
+            background: #ff4757;
+            color: #fff;
+            padding: 2px 6px;
+            font-size: 10px;
+            border-radius: 2px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+        .header-status {
+            color: #747d8c;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #040507;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: crosshair;
+        }
+        canvas.emscripten {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            outline: none;
+            display: block;
+        }
+        .tactical-overlay-hint {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 15, 24, 0.85);
+            border: 1px solid #00d2ff55;
+            color: #a4b0be;
+            padding: 6px 14px;
+            font-size: 11px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border-radius: 2px;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .tactical-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            background: #0d121b;
+            border-top: 1px solid #1a2533;
+            font-size: 11px;
+            color: #747d8c;
+        }
+        .controls-legend {
+            display: flex;
+            gap: 14px;
+        }
+        .key {
+            color: #00d2ff;
+            font-weight: bold;
+            font-family: monospace;
+            background: #182230;
+            padding: 2px 6px;
+            border-radius: 2px;
+            border: 1px solid #28374a;
+        }
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(0,210,255,0.2);
+            border-radius: 50%;
+            border-top-color: #00d2ff;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="tactical-frame">
+    <div class="tactical-header">
+        <div class="header-title">
+            <span class="header-badge">M1 ACTIVE</span>
+            <span>LAST MAGAZINE</span>
+        </div>
+        <div class="header-status" id="system-status">
+            <span class="spinner" id="status-spinner"></span>
+            <span id="status-text">INITIALIZING TACTICAL FEED (WEBGL 2)...</span>
+        </div>
+    </div>
+
+    <div class="canvas-container" id="canvas-wrapper">
+        <div class="tactical-overlay-hint" id="click-hint">CLICK TO ENGAGE POINTER LOCK & AUDIO FEED</div>
+        <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </div>
+
+    <div class="tactical-footer">
+        <div class="controls-legend">
+            <span><span class="key">CLICK</span> LOCK / FIRE</span>
+            <span><span class="key">R</span> TACTICAL RELOAD</span>
+            <span><span class="key">SPACE</span> HIT TEST</span>
+            <span><span class="key">TAB</span> TINNITUS</span>
+            <span><span class="key">ESC</span> UNLOCK</span>
+        </div>
+        <div>
+            <span>SYSTEM: <strong>60 HZ FIXED TIMESTEP</strong></span>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    var statusText = document.getElementById('status-text');
+    var statusSpinner = document.getElementById('status-spinner');
+    var clickHint = document.getElementById('click-hint');
+
+    var Module = {
+        preRun: [],
+        postRun: [function() {
+            statusText.innerText = "ONLINE - POINTER READY";
+            statusSpinner.style.display = "none";
+        }],
+        print: function(text) {
+            console.log("[TACTICAL FEED]", text);
+        },
+        printErr: function(text) {
+            console.warn("[TACTICAL FEED ERR]", text);
+        },
+        canvas: (function() {
+            var canvas = document.getElementById('canvas');
+            canvas.addEventListener("webglcontextlost", function(e) {
+                alert('WebGL context lost. You will need to reload the page.');
+                e.preventDefault();
+            }, false);
+            return canvas;
+        })(),
+        setStatus: function(text) {
+            if (!text) return;
+            statusText.innerText = text.toUpperCase();
+        },
+        totalDependencies: 0,
+        monitorRunDependencies: function(left) {
+            this.totalDependencies = Math.max(this.totalDependencies, left);
+            Module.setStatus(left ? 'PREPARING ASSETS... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'ALL FEEDS MOUNTED');
+        }
+    };
+
+    // Unlock audio context and pointer lock on canvas click
+    var canvasWrapper = document.getElementById('canvas-wrapper');
+    canvasWrapper.addEventListener('click', function() {
+        clickHint.style.opacity = '0';
+        // Resume Web Audio if suspended by browser autoplay policy
+        if (typeof SDL2 !== 'undefined' && SDL2.audioContext && SDL2.audioContext.state === 'suspended') {
+            SDL2.audioContext.resume();
+        }
+    });
+
+    document.addEventListener('pointerlockchange', function() {
+        if (document.pointerLockElement) {
+            clickHint.style.opacity = '0';
+        } else {
+            clickHint.style.opacity = '1';
+        }
+    }, false);
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
