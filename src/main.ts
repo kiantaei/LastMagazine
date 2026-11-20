@@ -4,6 +4,7 @@ import { Input } from './core/Input';
 import { CameraRig, type RigState } from './core/CameraRig';
 import { MapBuilder } from './world/MapBuilder';
 import { SFX } from './audio/SFX';
+import { Player } from './player/Player';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const boot = document.getElementById('boot');
@@ -51,6 +52,16 @@ const state: RigState = {
   aim: 0,
 };
 
+const player = new Player();
+player.pos.copy(map.playerStart);
+const playerEvents = {
+  onFootstep: (sprinting: boolean) => sfx.footstep(sprinting),
+  onLand: (impact: number) => rig.onLand(impact),
+  onDamage: () => {
+    /* HUD hook arrives with the UI commit */
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Pointer lock = "click to deploy" (also unlocks the AudioContext)
 // ---------------------------------------------------------------------------
@@ -69,6 +80,17 @@ const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const [lx, ly] = input.consumeLook();
+  const jump = input.wasPressed('Space');
+  player.update(dt, input.keys, jump, rig.yaw, 0, map.colliders, playerEvents);
+
+  state.pos.copy(player.pos);
+  state.eyeHeight = player.eyeHeight;
+  state.groundSpeed = Math.hypot(player.vel.x, player.vel.z);
+  state.grounded = player.grounded;
+  state.sprinting = player.sprinting;
+  state.crouching = player.crouching;
+  state.dead = player.dead;
+
   rig.update(dt, state, lx, ly);
   sfx.updateListener(rig.camera);
   input.endFrame();
