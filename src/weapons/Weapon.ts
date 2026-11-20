@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CameraRig } from '../core/CameraRig';
 import type { SFX } from '../audio/SFX';
-import type { Viewmodel } from './Viewmodel';
+import { RELOAD_TIME, type Viewmodel } from './Viewmodel';
 import { DebrisPool, FlashPool, ImpactPool, ShellPool, TracerPool } from './Fx';
 
 export interface WeaponInput {
@@ -45,6 +45,17 @@ export class Weapon {
   private dryCooldown = 0;
   private bloom = 0;
   private ray = new THREE.Raycaster();
+  private reloadT = 0;
+  private reloadStage = 0;
+
+  /** reload timeline: [time in seconds, foley stage] — matches the viewmodel keyframes */
+  private static readonly RELOAD_EVENTS = [
+    [0.32, 'release'],
+    [0.7, 'out'],
+    [1.42, 'in'],
+    [1.5, 'bolt1'],
+    [1.6, 'bolt2'],
+  ] as const;
 
   private flash: FlashPool;
   private tracers: TracerPool;
@@ -75,10 +86,50 @@ export class Weapon {
     this.aimBlend = 0;
     this.cooldown = 0;
     this.bloom = 0;
+    this.reloadT = 0;
+    this.reloadStage = 0;
+    this.vm.setReload(-1);
     this.hooks.onAmmoChange?.(this.mag, this.reserve);
   }
 
+  tryReload(): void {
+    if (this.reloading || this.mag === this.magSize || this.reserve <= 0) return;
+    this.reloading = true;
+    this.reloadT = 0;
+    this.reloadStage = 0;
+  }
+
   update(dt: number, input: WeaponInput): void {
+    // --- reload state machine ---------------------------------------------
+    if (input.reloadPressed) this.tryReload();
+    if (this.reloading) {
+      this.reloadT += dt;
+      const ev = Weapon.RELOAD_EVENTS;
+      while (this.reloadStage < ev.length && ev[this.reloadStage][0] <= this.reloadT) {
+        const stage = ev[this.reloadStage][1];
+        this.sfx.reload(stage);
+        if (stage === 'out') {
+          // the visual mag just left the well — spawn the ballistic prop
+          this.camera.updateMatrixWorld(true);
+          this.camera.getWorldDirection(TMP_DIR);
+          this.vm.getMuzzleWorldPos(TMP_MUZZLE);
+          this.vm.getMagWorldPos(TMP_PORT);
+          this.debris.spawn(TMP_PORT, TMP_DIR);
+        }
+        this.reloadStage++;
+      }
+      if (this.reloadT >= RELOAD_TIME) {
+        const take = Math.min(this.magSize - this.mag, this.reserve);
+        this.mag += take;
+        this.reserve -= take;
+        this.reloading = false;
+        this.hooks.onAmmoChange?.(this.mag, this.reserve);
+      }
+      this.vm.setReload(this.reloadT);
+    } else {
+      this.vm.setReload(-1);
+    }
+
     const wantAim = input.aimHeld && !this.reloading && !input.sprinting ? 1 : 0;
     this.aimBlend += (wantAim - this.aimBlend) * Math.min(1, dt * 10);
 
