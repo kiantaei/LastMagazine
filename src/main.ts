@@ -5,6 +5,8 @@ import { CameraRig, type RigState } from './core/CameraRig';
 import { MapBuilder } from './world/MapBuilder';
 import { SFX } from './audio/SFX';
 import { Player } from './player/Player';
+import { Viewmodel } from './weapons/Viewmodel';
+import { Weapon } from './weapons/Weapon';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const boot = document.getElementById('boot');
@@ -62,6 +64,15 @@ const playerEvents = {
   },
 };
 
+const vm = new Viewmodel();
+vm.attach(rig.camera);
+
+const weapon = new Weapon(rig.camera, rig, vm, sfx, map.hittables, scene, {
+  onAmmoChange: () => {
+    /* HUD hook arrives with the UI commit */
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Pointer lock = "click to deploy" (also unlocks the AudioContext)
 // ---------------------------------------------------------------------------
@@ -81,15 +92,29 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const [lx, ly] = input.consumeLook();
   const jump = input.wasPressed('Space');
-  player.update(dt, input.keys, jump, rig.yaw, 0, map.colliders, playerEvents);
+  const groundSpeed = Math.hypot(player.vel.x, player.vel.z);
+
+  player.update(dt, input.keys, jump, rig.yaw, weapon.aimBlend, map.colliders, playerEvents);
+  weapon.update(dt, {
+    firing: input.firing,
+    aimHeld: input.aimHeld,
+    reloadPressed: input.wasPressed('KeyR'),
+    sprinting: player.sprinting,
+    moving: groundSpeed > 0.6,
+    grounded: player.grounded,
+    speed: groundSpeed,
+    lookDX: lx,
+    lookDY: ly,
+  });
 
   state.pos.copy(player.pos);
   state.eyeHeight = player.eyeHeight;
-  state.groundSpeed = Math.hypot(player.vel.x, player.vel.z);
+  state.groundSpeed = groundSpeed;
   state.grounded = player.grounded;
   state.sprinting = player.sprinting;
   state.crouching = player.crouching;
   state.dead = player.dead;
+  state.aim = weapon.aimBlend;
 
   rig.update(dt, state, lx, ly);
   sfx.updateListener(rig.camera);
