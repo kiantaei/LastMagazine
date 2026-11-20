@@ -222,10 +222,10 @@ export class MapBuilder {
 
   // ------------------------------------------------------------------- lights
   private buildLights(): void {
-    const hemi = new THREE.HemisphereLight(0x33414f, 0x0a0c0e, 0.5);
+    const hemi = new THREE.HemisphereLight(0x3a4a5c, 0x0d0f12, 0.9);
     this.group.add(hemi);
 
-    const moon = new THREE.DirectionalLight(0x9fb4d8, 0.55);
+    const moon = new THREE.DirectionalLight(0x9fb4d8, 0.95);
     moon.position.set(28, 42, -18);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
@@ -245,7 +245,7 @@ export class MapBuilder {
     const headMat = new THREE.MeshStandardMaterial({
       color: 0x111111,
       emissive: 0xffa14d,
-      emissiveIntensity: 2.4,
+      emissiveIntensity: 3.2,
       roughness: 0.5,
     });
     const lampPositions: Array<[number, number]> = [
@@ -266,7 +266,7 @@ export class MapBuilder {
       head.position.set(x, 6.05, z + (z > 0 ? -0.5 : 0.5));
       this.group.add(head);
 
-      const light = new THREE.PointLight(0xffab5c, 65, 34, 2);
+      const light = new THREE.PointLight(0xffab5c, 130, 42, 2);
       light.position.set(x, 5.9, z + (z > 0 ? -0.6 : 0.6));
       this.group.add(light);
     }

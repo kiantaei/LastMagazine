@@ -26,7 +26,7 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 
@@ -123,8 +123,10 @@ input.onLockChanged = (locked) => {
   }
 };
 
-canvas.addEventListener('click', () => {
-  if (phase !== 'paused' || true) input.requestLock();
+// any click on the page (menu, pause, death overlays included) re-engages
+// pointer lock — the overlays sit above the canvas and would eat the event
+document.addEventListener('click', () => {
+  if (!input.locked) input.requestLock();
 });
 
 // touch devices get a warning instead of a broken game
@@ -139,9 +141,9 @@ if ('ontouchstart' in window && window.innerWidth < 900) {
 }
 
 // ---------------------------------------------------------------------------
-// Frame loop
+// Frame loop (manual timing — THREE.Clock is deprecated in r187)
 // ---------------------------------------------------------------------------
-const clock = new THREE.Clock();
+let lastT = performance.now();
 const playerEye = new THREE.Vector3();
 let ambienceT = 6;
 
@@ -157,7 +159,9 @@ const state: RigState = {
 };
 
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const now = performance.now();
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
   const [lx, ly] = input.consumeLook();
   const jump = input.wasPressed('Space');
   const groundSpeed = Math.hypot(player.vel.x, player.vel.z);

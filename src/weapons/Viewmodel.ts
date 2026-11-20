@@ -53,12 +53,12 @@ export class Viewmodel {
 
   constructor() {
     const gunmetal = new THREE.MeshStandardMaterial({
-      color: 0x23272d,
-      metalness: 0.85,
+      color: 0x2f353d,
+      metalness: 0.8,
       roughness: 0.36,
     });
     const polymer = new THREE.MeshStandardMaterial({
-      color: 0x17191d,
+      color: 0x24282e,
       metalness: 0.15,
       roughness: 0.72,
     });
@@ -111,18 +111,23 @@ export class Viewmodel {
 
     // weapon light — the bodycam's best friend in a dark yard
     add(new THREE.BoxGeometry(0.03, 0.03, 0.08), dark, 0.038, -0.035, -0.2);
-    const torch = new THREE.SpotLight(0xffedd0, 190, 34, 0.42, 0.55, 2);
+    const torch = new THREE.SpotLight(0xffedd0, 420, 38, 0.46, 0.6, 2);
     torch.position.set(0.038, -0.03, -0.24);
     torch.castShadow = true;
     torch.shadow.mapSize.set(1024, 1024);
     torch.shadow.camera.near = 0.2;
-    torch.shadow.camera.far = 34;
+    torch.shadow.camera.far = 38;
     torch.shadow.bias = -0.002;
     const torchTarget = new THREE.Object3D();
     torchTarget.position.set(0.038, -0.04, -14);
     this.group.add(torchTarget);
     torch.target = torchTarget;
     this.group.add(torch);
+
+    // soft fill so the weapon stays readable against the night
+    const fill = new THREE.PointLight(0xd8dce4, 2.2, 1.6, 2);
+    fill.position.set(0.12, 0.1, -0.15);
+    this.group.add(fill);
 
     this.muzzleRef.position.set(0, 0.02, -0.5);
     this.group.add(this.muzzleRef);
