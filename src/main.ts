@@ -3,6 +3,7 @@ import './style.css';
 import { Input } from './core/Input';
 import { CameraRig, type RigState } from './core/CameraRig';
 import { MapBuilder } from './world/MapBuilder';
+import { SFX } from './audio/SFX';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const boot = document.getElementById('boot');
@@ -34,6 +35,8 @@ scene.add(rig.camera);
 
 const input = new Input(canvas);
 
+const sfx = new SFX();
+
 const map = new MapBuilder();
 scene.add(map.group);
 
@@ -49,8 +52,11 @@ const state: RigState = {
 };
 
 // ---------------------------------------------------------------------------
-// Pointer lock = "click to deploy"
+// Pointer lock = "click to deploy" (also unlocks the AudioContext)
 // ---------------------------------------------------------------------------
+input.onLockChanged = (locked) => {
+  if (locked) sfx.start();
+};
 canvas.addEventListener('click', () => {
   input.requestLock();
 });
@@ -64,6 +70,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const [lx, ly] = input.consumeLook();
   rig.update(dt, state, lx, ly);
+  sfx.updateListener(rig.camera);
   input.endFrame();
   renderer.render(scene, rig.camera);
 });
