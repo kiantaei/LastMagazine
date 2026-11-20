@@ -8,7 +8,70 @@
 <body>
   <div id="app">
     <canvas id="game-canvas"></canvas>
-    <div id="boot">INITIALISING CAMERA LINK …</div>
+
+    <!-- bodycam HUD -->
+    <div id="hud">
+      <div id="hud-topline">
+        <span class="rec-dot"></span><span class="rec-label">REC</span>
+        <span class="cam-meta">BWC-04 · 1080P · 60FPS</span>
+        <span id="hud-wave">WAVE 1</span><span class="sep">·</span><span id="hud-kills">KILLS 0</span>
+      </div>
+      <div id="hud-timestamp">0000-00-00 00:00:00</div>
+      <div id="crosshair"></div>
+      <div id="hud-hitmarker">✕</div>
+      <div id="hud-banner"></div>
+      <div id="hud-feed"></div>
+      <div id="hud-ammo-block">
+        <div id="hud-weapon">KSR-9 · AUTO</div>
+        <div id="hud-ammo"><span id="hud-mag">30</span><span id="hud-reserve">/ 150</span></div>
+        <div id="hud-reload-bar"><div id="hud-reload-fill"></div></div>
+        <div id="hud-hint">R RELOAD · RMB AIM · SHIFT SPRINT · C CROUCH</div>
+      </div>
+    </div>
+
+    <div id="damage-overlay"></div>
+
+    <!-- menu -->
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <div class="menu-brand">LAST MAGAZINE</div>
+        <div class="menu-sub">BODYCAM OPS — NIGHT YARD K-7</div>
+        <p class="menu-copy">
+          You are the camera. Hold the yard against escalating waves of hostiles.
+          Every sound is synthesized live — no assets, no mercy.
+        </p>
+        <div class="menu-controls">
+          <div><span>WASD</span> move</div>
+          <div><span>MOUSE</span> look</div>
+          <div><span>LMB</span> fire</div>
+          <div><span>RMB</span> aim</div>
+          <div><span>R</span> reload</div>
+          <div><span>SHIFT</span> sprint</div>
+          <div><span>C</span> crouch</div>
+          <div><span>SPACE</span> jump</div>
+        </div>
+        <div class="menu-cta">▸ CLICK TO DEPLOY ◂</div>
+        <div class="menu-note">desktop + mouse + sound required</div>
+      </div>
+    </div>
+
+    <!-- pause -->
+    <div id="pause" class="overlay hidden">
+      <div class="panel">
+        <div class="menu-sub">FEED PAUSED</div>
+        <div class="menu-cta">▸ CLICK TO RESUME ◂</div>
+      </div>
+    </div>
+
+    <!-- death -->
+    <div id="death" class="overlay hidden">
+      <div class="panel">
+        <div class="death-title">SIGNAL LOST</div>
+        <div class="death-sub">CAMERA FEED TERMINATED</div>
+        <div id="death-stats">KILLS 0 · REACHED WAVE 1</div>
+        <div class="menu-cta">▸ CLICK TO REDEPLOY ◂</div>
+      </div>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -58,7 +58,10 @@ export class Input {
   }
 
   requestLock(): void {
-    this.canvas.requestPointerLock();
+    // Chrome enforces a cooldown after Esc; swallow the rejection so the
+    // player can simply click again.
+    const p = this.canvas.requestPointerLock() as unknown;
+    if (p instanceof Promise) p.catch(() => {});
   }
 
   releaseLock(): void {

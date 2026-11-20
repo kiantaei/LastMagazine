@@ -105,6 +105,10 @@ export class Weapon {
     this.reloadStage = 0;
   }
 
+  get reloadProgress(): number {
+    return this.reloading ? this.reloadT / RELOAD_TIME : 0;
+  }
+
   update(dt: number, input: WeaponInput): void {
     // --- reload state machine ---------------------------------------------
     if (input.reloadPressed) this.tryReload();
