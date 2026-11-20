@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import './style.css';
 import { Input } from './core/Input';
 import { CameraRig, type RigState } from './core/CameraRig';
+import { MapBuilder } from './world/MapBuilder';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const boot = document.getElementById('boot');
@@ -33,17 +34,11 @@ scene.add(rig.camera);
 
 const input = new Input(canvas);
 
-// Placeholder ground — replaced by the real map in the next commit.
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(220, 220),
-  new THREE.MeshStandardMaterial({ color: 0x11151a, roughness: 0.95 }),
-);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
+const map = new MapBuilder();
+scene.add(map.group);
 
 const state: RigState = {
-  pos: new THREE.Vector3(0, 0, 8),
+  pos: map.playerStart.clone(),
   eyeHeight: 1.62,
   groundSpeed: 0,
   grounded: true,
