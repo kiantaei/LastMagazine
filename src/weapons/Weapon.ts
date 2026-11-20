@@ -3,6 +3,7 @@ import type { CameraRig } from '../core/CameraRig';
 import type { SFX } from '../audio/SFX';
 import { RELOAD_TIME, type Viewmodel } from './Viewmodel';
 import { DebrisPool, FlashPool, ImpactPool, ShellPool, TracerPool } from './Fx';
+import type { Enemy, EnemyFx } from '../enemies/Enemy';
 
 export interface WeaponInput {
   firing: boolean;
@@ -18,6 +19,7 @@ export interface WeaponInput {
 
 export interface WeaponHooks {
   onAmmoChange?: (mag: number, reserve: number) => void;
+  onHit?: (killed: boolean) => void;
 }
 
 const TMP_ORIGIN = new THREE.Vector3();
@@ -37,8 +39,11 @@ export class Weapon {
   mag = 30;
   readonly magSize = 30;
   reserve = 150;
+  readonly damage = 26;
   aimBlend = 0;
   reloading = false;
+  /** shared world-FX bundle handed to the enemy manager */
+  readonly fx: EnemyFx;
 
   private readonly fireInterval = 60 / 780;
   private cooldown = 0;
@@ -77,6 +82,7 @@ export class Weapon {
     this.shells = new ShellPool(scene, 16, hittables);
     this.impacts = new ImpactPool(scene);
     this.debris = new DebrisPool(scene, 3, hittables);
+    this.fx = { flash: this.flash, tracers: this.tracers, impacts: this.impacts, sfx };
   }
 
   reset(): void {
@@ -193,10 +199,17 @@ export class Weapon {
     if (hits.length > 0) {
       const h = hits[0];
       TMP_END.copy(h.point);
-      const normal = h.face
-        ? h.face.normal.clone().transformDirection(h.object.matrixWorld)
-        : TMP_DIR.clone().negate();
-      this.impacts.spawn(h.point, normal, 'world');
+      const ud = h.object.userData as { enemy?: Enemy; mult?: number };
+      if (ud.enemy) {
+        const wasAlive = ud.enemy.alive;
+        ud.enemy.damage(this.damage * (ud.mult ?? 1), h.point, TMP_DIR, this.fx);
+        if (wasAlive) this.hooks.onHit?.(!ud.enemy.alive);
+      } else {
+        const normal = h.face
+          ? h.face.normal.clone().transformDirection(h.object.matrixWorld)
+          : TMP_DIR.clone().negate();
+        this.impacts.spawn(h.point, normal, 'world');
+      }
     }
 
     this.vm.getMuzzleWorldPos(TMP_MUZZLE);

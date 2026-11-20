@@ -7,6 +7,7 @@ import { SFX } from './audio/SFX';
 import { Player } from './player/Player';
 import { Viewmodel } from './weapons/Viewmodel';
 import { Weapon } from './weapons/Weapon';
+import { EnemyManager } from './enemies/EnemyManager';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const boot = document.getElementById('boot');
@@ -67,11 +68,30 @@ const playerEvents = {
 const vm = new Viewmodel();
 vm.attach(rig.camera);
 
-const weapon = new Weapon(rig.camera, rig, vm, sfx, map.hittables, scene, {
+// world geometry + (later) enemy hit zones — one array shared by bullets
+const shootables = [...map.hittables];
+
+const weapon = new Weapon(rig.camera, rig, vm, sfx, shootables, scene, {
   onAmmoChange: () => {
     /* HUD hook arrives with the UI commit */
   },
+  onHit: (killed) => (killed ? sfx.killConfirm() : sfx.hitmarker()),
 });
+
+const enemies = new EnemyManager(scene, weapon.fx, map.colliders, map.hittables, shootables, map.spawnPoints, {
+  onKill: () => {
+    /* HUD hook arrives with the UI commit */
+  },
+  onWaveStart: () => sfx.blip(),
+  onWaveClear: () => sfx.blip(),
+  onPlayerHit: (dmg) => {
+    player.damage(dmg, playerEvents);
+    sfx.hurt();
+    rig.addTrauma(0.3);
+  },
+  onNearMiss: (pos) => sfx.whiz(pos),
+});
+enemies.start();
 
 // ---------------------------------------------------------------------------
 // Pointer lock = "click to deploy" (also unlocks the AudioContext)
@@ -87,6 +107,8 @@ canvas.addEventListener('click', () => {
 // Frame loop
 // ---------------------------------------------------------------------------
 const clock = new THREE.Clock();
+const playerEye = new THREE.Vector3();
+let ambienceT = 6;
 
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -106,6 +128,24 @@ renderer.setAnimationLoop(() => {
     lookDX: lx,
     lookDY: ly,
   });
+
+  // hostile waves (frozen while KIA)
+  if (!player.dead) {
+    playerEye.set(player.pos.x, player.pos.y + player.eyeHeight, player.pos.z);
+    enemies.update(dt, {
+      feet: player.pos,
+      eye: playerEye,
+      sprinting: player.sprinting,
+      crouching: player.crouching,
+    });
+  }
+
+  // sparse ambient world events
+  ambienceT -= dt;
+  if (ambienceT <= 0) {
+    sfx.rumble();
+    ambienceT = 9 + Math.random() * 14;
+  }
 
   state.pos.copy(player.pos);
   state.eyeHeight = player.eyeHeight;
