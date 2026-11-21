@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LAST MAGAZINE — Bodycam Ops</title>
+  <title>LASTMAGAZINE</title>
 </head>
 <body>
   <div id="app">
@@ -11,23 +11,29 @@
 
     <!-- bodycam HUD -->
     <div id="hud">
+      <div id="hud-title">LASTMAGAZINE</div>
       <div id="hud-topline">
         <span class="rec-dot"></span><span class="rec-label">REC</span>
         <span class="cam-meta">BWC-04 · 1080P · 30FPS</span>
         <span id="hud-torch">TORCH ON</span>
         <span id="hud-batt">BATT 100%</span>
-        <span id="hud-wave">WAVE 1</span><span class="sep">·</span><span id="hud-kills">KILLS 0</span>
       </div>
+      <div id="hud-stars"></div>
+      <div id="hud-persona">CIVILIAN</div>
       <div id="hud-timestamp">0000-00-00 00:00:00</div>
-      <div id="crosshair"></div>
       <div id="hud-hitmarker">✕</div>
       <div id="hud-banner"></div>
       <div id="hud-feed"></div>
-      <div id="hud-ammo-block">
-        <div id="hud-weapon">P9C · SIDEARM</div>
-        <div id="hud-ammo"><span id="hud-mag">15</span><span id="hud-reserve">/ 90</span></div>
-        <div id="hud-reload-bar"><div id="hud-reload-fill"></div></div>
-        <div id="hud-hint">F TORCH · R RELOAD · RMB AIM · SHIFT SPRINT · C CROUCH</div>
+      <div id="hud-interact"></div>
+      <div id="hud-speed"></div>
+      <div id="hud-status-block">
+        <div id="hud-hp-row"><span class="hp-label">HP</span><div id="hud-hp-bar"><div id="hud-hp-fill"></div></div></div>
+        <div id="hud-ammo-block">
+          <div id="hud-weapon">P9C · SIDEARM</div>
+          <div id="hud-ammo"><span id="hud-mag">15</span><span id="hud-reserve">/ 90</span></div>
+          <div id="hud-reload-bar"><div id="hud-reload-fill"></div></div>
+          <div id="hud-hint">F TORCH · R RELOAD · E ENTER/EXIT CAR · F5 CHARACTER · SHIFT SPRINT · SPACE JUMP/HANDBRAKE</div>
+        </div>
       </div>
     </div>
 
@@ -36,22 +42,25 @@
     <!-- menu -->
     <div id="menu" class="overlay">
       <div class="panel">
-        <div class="menu-brand">LAST MAGAZINE</div>
-        <div class="menu-sub">BODYCAM OPS — NIGHT YARD K-7</div>
+        <div class="menu-brand">LASTMAGAZINE</div>
+        <div class="menu-sub">NIGHT CITY — OPEN WORLD BODYCAM</div>
         <p class="menu-copy">
-          You are the camera. Night yard K-7 is black — your weapon light and
-          the burning barrels are the only lights left. Hold it against
-          escalating waves of hostiles. Every sound is synthesized live.
+          One camera. One city. Steal cars off the curb, switch who you are,
+          and try not to earn all five stars — every crime brings more
+          sirens. Your weapon light and the burning barrels are the only
+          lights left. Every sound is synthesized live.
         </p>
         <div class="menu-controls">
-          <div><span>WASD</span> move</div>
+          <div><span>WASD</span> move / drive</div>
           <div><span>MOUSE</span> look</div>
           <div><span>LMB</span> fire</div>
-          <div><span>RMB</span> aim</div>
           <div><span>R</span> reload</div>
+          <div><span>E</span> enter / exit car</div>
+          <div><span>F5</span> change character</div>
+          <div><span>F</span> torch</div>
           <div><span>SHIFT</span> sprint</div>
+          <div><span>SPACE</span> jump / handbrake</div>
           <div><span>C</span> crouch</div>
-          <div><span>SPACE</span> jump</div>
         </div>
         <div class="menu-cta" id="menu-cta">LOADING MODELS … 0%</div>
         <div class="menu-note">desktop + mouse + sound required</div>
@@ -69,9 +78,9 @@
     <!-- death -->
     <div id="death" class="overlay hidden">
       <div class="panel">
-        <div class="death-title">SIGNAL LOST</div>
+        <div class="death-title">WASTED</div>
         <div class="death-sub">CAMERA FEED TERMINATED</div>
-        <div id="death-stats">KILLS 0 · REACHED WAVE 1</div>
+        <div id="death-stats">KILLS 0 · WANTED LEVEL 0</div>
         <div class="menu-cta">▸ CLICK TO REDEPLOY ◂</div>
       </div>
     </div>

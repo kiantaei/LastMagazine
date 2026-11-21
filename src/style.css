@@ -120,16 +120,85 @@ body {
   opacity: 0.9;
 }
 
-#crosshair {
+/* game title watermark (top-left corner) */
+#hud-title {
   position: absolute;
+  top: 40px;
+  left: 22px;
+  font-size: 11px;
+  letter-spacing: 5px;
+  color: #ffb168;
+  opacity: 0.85;
+}
+
+/* five-star wanted level (top right) */
+#hud-stars {
+  position: absolute;
+  top: 16px;
+  right: 22px;
+  display: flex;
+  gap: 3px;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.16);
+}
+
+#hud-stars .star.lit {
+  color: #ffcf5a;
+  text-shadow: 0 0 8px rgba(255, 190, 60, 0.7), 1px 1px 0 rgba(0, 0, 0, 0.8);
+}
+
+#hud-stars.hot .star.lit {
+  animation: blink 1.2s steps(2, start) infinite;
+}
+
+/* current persona (under the stars) */
+#hud-persona {
+  position: absolute;
+  top: 46px;
+  right: 22px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #9fd7ae;
+  opacity: 0.9;
+}
+
+#hud-persona.flash {
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+/* interaction hint (centre bottom) */
+#hud-interact {
+  position: absolute;
+  bottom: 14%;
   left: 50%;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  margin: -2.5px 0 0 -2.5px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  transform: translateX(-50%);
+  font-size: clamp(13px, 1.8vw, 17px);
+  letter-spacing: 4px;
+  color: #ffe2b8;
+  opacity: 0;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+#hud-interact.show {
+  opacity: 1;
+}
+
+/* speedometer while driving */
+#hud-speed {
+  position: absolute;
+  bottom: 20px;
+  right: 24px;
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: #d8c98f;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+#hud-speed.show {
+  opacity: 0.95;
 }
 
 #hud-hitmarker {
@@ -189,13 +258,44 @@ body {
   opacity: 1;
 }
 
-#hud-ammo-block {
+#hud-status-block {
   position: absolute;
   bottom: 20px;
   left: 24px;
   font-size: 13px;
   letter-spacing: 2px;
   opacity: 0.95;
+}
+
+#hud-hp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.hp-label {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#hud-hp-bar {
+  width: 150px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+#hud-hp-fill {
+  height: 100%;
+  width: 100%;
+  background: #9fd7ae;
+  transition: width 0.15s;
+}
+
+#hud-hp-fill.low {
+  background: #ff5040;
+  animation: blink 0.9s steps(2, start) infinite;
 }
 
 #hud-weapon {
