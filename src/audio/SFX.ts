@@ -229,6 +229,57 @@ export class SFX {
       const gust = 0.55 + 0.45 * Math.sin((Math.PI * 2 * t) / 6 * 1.3 + 1.2);
       return lp * gust;
     });
+
+    // --- bodycam chrome ------------------------------------------------------
+    this.mk('recBeep', 0.55, (t) => {
+      const b1 = t < 0.1 ? Math.sin(Math.PI * 2 * 920 * t) * Math.exp(-t * 30) : 0;
+      const t2 = t - 0.22;
+      const b2 = t2 > 0 && t2 < 0.1 ? Math.sin(Math.PI * 2 * 1240 * t2) * Math.exp(-t2 * 30) : 0;
+      const hiss = (Math.random() * 2 - 1) * 0.05 * Math.min(1, t * 14) * Math.exp(-t * 4);
+      return (b1 + b2) * 0.5 + hiss;
+    });
+    this.mk('static', 0.5, (t) => {
+      // telecom dropout: gated white noise with sparse pops
+      const gate = Math.sin(Math.PI * 2 * 23 * t) > -0.25 ? 1 : 0.12;
+      const n = Math.random() * 2 - 1;
+      const pop = Math.random() < 0.003 ? (Math.random() * 2 - 1) * 0.8 : 0;
+      return (n * 0.55 * gate + pop) * Math.exp(-Math.max(0, t - 0.44) * 30);
+    });
+    this.mk('torchClick', 0.08, (t) => {
+      const down = (Math.random() * 2 - 1) * Math.exp(-t * 190) * 0.8;
+      const up = t > 0.032 ? (Math.random() * 2 - 1) * Math.exp(-(t - 0.032) * 170) * 0.5 : 0;
+      return (down + up) * 0.8;
+    });
+
+    // --- fire crackle loop (stateful synthesis, bypasses mk) ------------------
+    const sr = ctx.sampleRate;
+    const fireLen = Math.floor(sr * 3.2);
+    const fireBuf = ctx.createBuffer(1, fireLen, sr);
+    const fd = fireBuf.getChannelData(0);
+    let flp = 0;
+    let popV = 0;
+    let popDecay = 0.9;
+    let popLen = 0;
+    let nextPop = 0.04;
+    for (let i = 0; i < fireLen; i++) {
+      const t = i / sr;
+      flp += ((Math.random() * 2 - 1) - flp) * 0.014;
+      let v = flp * 1.5;
+      if (t >= nextPop) {
+        popV = (Math.random() * 2 - 1) * (0.5 + Math.random() * 0.8);
+        popDecay = Math.exp(-(Math.random() * 6 + 3));
+        popLen = 0.012 + Math.random() * 0.05;
+        nextPop = t + 0.02 + Math.random() * 0.16;
+      }
+      if (popLen > 0) {
+        v += popV * (Math.random() * 2 - 1) * 0.9;
+        popV *= popDecay;
+        popLen -= 1 / sr;
+      }
+      const seam = Math.min(1, t / 0.02) * Math.min(1, (3.2 - t) / 0.02);
+      fd[i] = Math.tanh(v * 0.9) * seam * 0.6;
+    }
+    this.buffers.set('fire', fireBuf);
   }
 
   // --------------------------------------------------------------- playback
@@ -371,6 +422,32 @@ export class SFX {
   blip(): void {
     this.playBuffer(this.buffers.get('blip') as AudioBuffer, { gain: 0.4 });
   }
+
+  /** recording starts: double beep + a burst of camera static */
+  recStart(): void {
+    this.playBuffer(this.buffers.get('recBeep') as AudioBuffer, { gain: 0.55 });
+    this.playBuffer(this.buffers.get('static') as AudioBuffer, { gain: 0.3 });
+  }
+
+  staticBurst(): void {
+    this.playBuffer(this.buffers.get('static') as AudioBuffer, { gain: 0.55, wet: 0.15 });
+  }
+
+  torchClick(): void {
+    this.playBuffer(this.buffers.get('torchClick') as AudioBuffer, { gain: 0.45 });
+  }
+
+  /** spatialised crackle loops for every fire in the yard (once) */
+  startFireLoops(positions: THREE.Vector3[]): void {
+    if (this.fireLoopsStarted) return;
+    this.fireLoopsStarted = true;
+    const buf = this.buffers.get('fire') as AudioBuffer;
+    if (!buf) return;
+    for (const p of positions) {
+      this.playLoop(buf, { gain: 0.42, wet: 0.2, pos: p, rate: 0.9 + Math.random() * 0.25 });
+    }
+  }
+  private fireLoopsStarted = false;
 
   // -------------------------------------------------------------- listener
   private tmpPos = new THREE.Vector3();

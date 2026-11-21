@@ -6,9 +6,10 @@ effects are generated procedurally at runtime, on top of **real GLTF 3D
 models** for the characters and weapons (see
 [public/models/CREDITS.md](public/models/CREDITS.md)).
 
-You are the camera. Hold Night Yard K-7 against escalating waves of hostiles,
-with a weapon-mounted light cutting through the dark and a rig that bobs,
-breathes, kicks and slumps the way a real body-mounted camera does.
+You are the camera. Night Yard K-7 is black — the burning barrels and your
+weapon-mounted light are the only lights left. Hold it against escalating
+waves of hostiles, with a rig that bobs, breathes, kicks and slumps the way
+a real body-mounted camera does.
 
 ![Night yard](docs/screenshot-night-yard.png)
 
@@ -37,9 +38,10 @@ Esc pauses, click to resume.
 | --- | --- |
 | `WASD` | Move |
 | Mouse | Look |
-| `LMB` | Fire (full auto) |
+| `LMB` | Fire (fast semi-auto) |
 | `RMB` | Aim down sights (FOV zoom, tight spread) |
-| `R` | Reload (visual 3-stage mag swap) |
+| `R` | Reload (hand-driven mag swap) |
+| `F` | Toggle the weapon light |
 | `Shift` | Sprint (wider bob, faster strides) |
 | `C` / `Ctrl` | Crouch |
 | `Space` | Jump |
@@ -54,12 +56,20 @@ Esc pauses, click to resume.
   per hostile with a dedicated `AnimationMixer` — Run is time-scaled to
   match each soldier's movement speed. Height-normalized to 1.78 m from
   the bind-pose bbox.
-- **The KSR-9 viewmodel** is a Quaternius *Sci-Fi Modular Guns* SMG
-  (CC0), normalized so the barrel points -z and the model is centered at
-  a real-world 0.62 m length. Its **magazine is a separate node** cloned
-  out of the model into gun space — the reload animation slides the actual
-  magazine out of the well, drops it as a ballistic prop built from the
-  same geometry, then seats a fresh one.
+- **The P9C viewmodel** is a Quaternius *Sci-Fi Modular Guns* pistol
+  (CC0), normalized so the barrel points -z at a real-world 0.33 m
+  length — recentered exactly, since the source model is not built
+  around its own origin.
+- **The hands are real skinned models too** — the WebXR `generic-hand`
+  GLTFs (MIT), re-dressed as dark tactical gloves and seated by their
+  `wrist` bone onto grip anchors measured from the pistol geometry.
+  Every finger is posed through its joint bones: trigger finger straight
+  on the trigger, the other three wrapped around the front strap, off
+  hand cupping the frame from the left.
+- **The reload is hand-driven**: the off hand dips off-screen, comes back
+  carrying a fresh magazine (scaled SMG mag aligned to the grip rake),
+  slaps it into the well while the spent mag drops as a ballistic prop,
+  and the slide jolts home — synced to five staged foley sounds.
 - **Enemy rifles** are the Quaternius AR model, slung across the chest
   with a world-space muzzle point for tracers and flash lights.
 - Zone damage is delivered through invisible hitboxes (`colorWrite` /
@@ -78,24 +88,31 @@ Esc pauses, click to resume.
   bobs on a stride clock, breathes at idle, snaps through a sprint pose and
   a two-phase reload pose.
 - **Post-processing grade** — fisheye barrel distortion, radial chromatic
-  aberration, desaturated crushed-black color grade, vignette, animated
-  film grain weighted toward shadows, and a red hurt vignette driven by
-  damage and low health. 4x MSAA composer target.
-- **Bodycam chrome** — blinking REC dot, camera ID, live timestamp, minimal
+  aberration, desaturated crushed-black color grade, deep vignette, animated
+  film grain weighted toward shadows, digital dropout glitch rows (damage,
+  random telecom dropouts, death) and a red hurt vignette. 4x MSAA composer
+  target.
+- **Bodycam chrome** — blinking REC dot, camera ID (30FPS label), battery
+  readout that drains while recording, torch state, live timestamp, minimal
   crosshair, ammo block with reload bar, wave banners and kill feed.
 
 ![Reload](docs/screenshot-reload.png)
 
 ### Gunplay
 
-- Full-auto hitscan SMG (780 RPM) with a spread model: hip vs ADS bloom,
-  movement and airborne penalties, per-shot bloom accumulation.
+- Fast semi-auto hitscan pistol (≈400 RPM, 15+90 ammo) with a spread model:
+  hip vs ADS bloom, movement and airborne penalties, per-shot bloom
+  accumulation.
 - Zone damage on hostiles: head ×2.4, torso ×1.0, limbs ×0.6.
 - Pooled effects: muzzle flash sprites + point lights, moving tracers,
   ballistic shell ejection with ground bounce and positional tink,
   sparks, bullet-hole decals and smoke puffs.
-- The reload is fully animated: gun tilt, the model's own magazine slides
-  out and drops as a physical prop, fresh mag seats, bolt jolt — synced
+- The weapon light (`F`) is a shadow-casting spotlight with beam lag that
+  trails the eyes, battery-style micro flicker, and a short-range spill
+  glow that keeps the gun and gloves visible — plus a start-of-run double
+  beep and camera static.
+- The reload is fully hand-driven: gun tilt, the off hand dips and seats
+  the fresh mag, spent mag drops as a physical prop, slide jolt — synced
   to five staged foley sounds.
 
 ### Sound — 100% synthesized, no audio files
@@ -110,6 +127,9 @@ Every buffer is rendered with raw sample math at boot:
 - Footsteps (4 variants), full reload foley, dry fire, bullet whiz-bys with
   pitch sweeps, impact grits, hurt grunt, low-health heartbeat, ambient wind
   loop and sparse world rumbles.
+- Bodycam chrome audio: start-of-recording double beep, gated static bursts
+  on hits and death, torch click, and spatialised fire-crackle loops
+  (stateful crackle synthesis) emitted from every burning barrel.
 
 ### Enemies & waves
 
@@ -129,8 +149,12 @@ Every buffer is rendered with raw sample math at boot:
 - Procedural canvas textures (asphalt with cracks and oil stains, seamed
   concrete with drip stains, plank wood, corrugated rusted metal) on a
   deterministic seed, so the layout is identical every load.
-- Sodium pole lamps, hemisphere fill, shadow-casting moonlight, exponential
-  fog and a gradient sky dome.
+- **Flashlight-and-fire lighting only** — no ambient, hemisphere, moon or
+  lamp lights exist in the scene. Six burning barrels (flickering point
+  lights, additive flame quads, glowing coals) are the yard's only light
+  sources; everything else is the player's weapon light. Exponential fog
+  keeps the darkness thick while distant fires stay visible beacons, and
+  a faint star dome replaces the old gradient sky.
 
 ## Architecture
 
@@ -142,11 +166,12 @@ src/
 │   ├── CameraRig.ts      bodycam rig: bob, breathing, viewpunch, shake, FOV
 │   └── Assets.ts         GLTF preload + gun/character normalization helpers
 ├── world/
-│   └── MapBuilder.ts     procedural textures, geometry, lights, colliders
+│   ├── MapBuilder.ts     procedural textures, geometry, fires, colliders
+│   └── Fire.ts           burning barrels: flame quads, coals, flicker light
 ├── player/
 │   └── Player.ts         accel/friction movement, AABB collision + step-up
 ├── weapons/
-│   ├── Viewmodel.ts      GLTF SMG, sway/bob springs, model-space mag reload
+│   ├── Viewmodel.ts      GLTF pistol + gloved hands, sway/bob springs, hand-driven reload
 │   ├── Weapon.ts         fire control, hitscan, reload state machine
 │   └── Fx.ts             pooled flashes, tracers, shells, impacts, debris
 ├── enemies/

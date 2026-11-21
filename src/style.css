@@ -75,6 +75,33 @@ body {
   opacity: 0.75;
 }
 
+#hud-torch {
+  color: #8fe3a2;
+}
+
+#hud-torch.off {
+  color: #ff5a4a;
+}
+
+#hud-batt {
+  color: #d8c98f;
+}
+
+#hud-batt.low {
+  color: #ff5a4a;
+  animation: blink 0.9s steps(2, start) infinite;
+}
+
+/* brief bodycam dropout — the REC chrome flickers with the grade glitch */
+#hud.rec-glitch #hud-topline {
+  opacity: 0.25;
+}
+
+#hud.rec-glitch .rec-dot {
+  animation: none;
+  opacity: 1;
+}
+
 #hud-topline #hud-wave,
 #hud-topline #hud-kills {
   margin-left: auto;

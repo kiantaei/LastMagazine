@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createFire, type Fire } from './Fire';
 
 export interface Collider {
   min: THREE.Vector3;
@@ -44,7 +45,7 @@ function grain(ctx: CanvasRenderingContext2D, s: number, rnd: () => number, n: n
 
 const asphaltTex = () =>
   canvasTexture(512, 9, (ctx, s, rnd) => {
-    ctx.fillStyle = '#17191d';
+    ctx.fillStyle = '#0d0f12';
     ctx.fillRect(0, 0, s, s);
     grain(ctx, s, rnd, 9000, 0.07);
     // expansion joints
@@ -81,7 +82,7 @@ const asphaltTex = () =>
 
 const concreteTex = () =>
   canvasTexture(512, 1, (ctx, s, rnd) => {
-    ctx.fillStyle = '#33373d';
+    ctx.fillStyle = '#1f2329';
     ctx.fillRect(0, 0, s, s);
     grain(ctx, s, rnd, 7000, 0.08);
     // panel seams + drip stains
@@ -101,7 +102,7 @@ const woodTex = () =>
     const planks = 4;
     const pw = s / planks;
     for (let p = 0; p < planks; p++) {
-      const l = 16 + rnd() * 8;
+      const l = 9 + rnd() * 6;
       ctx.fillStyle = `hsl(${24 + rnd() * 8}, 34%, ${l}%)`;
       ctx.fillRect(p * pw, 0, pw, s);
       ctx.strokeStyle = 'rgba(0,0,0,0.28)';
@@ -119,7 +120,7 @@ const woodTex = () =>
 
 const metalTex = () =>
   canvasTexture(512, 1, (ctx, s, rnd) => {
-    ctx.fillStyle = '#2b333b';
+    ctx.fillStyle = '#191f25';
     ctx.fillRect(0, 0, s, s);
     // corrugation stripes
     const stripe = 32;
@@ -156,20 +157,24 @@ const metalTex = () =>
   });
 
 /**
- * Builds the whole night arena: ground, perimeter, cover props, lights,
+ * Builds the whole arena: ground, perimeter, cover props, fires,
  * collision AABBs, bullet-hit targets and enemy spawn points.
+ * The night is lit ONLY by the yard fires — the player's weapon light
+ * (owned by the viewmodel) does the rest. No ambient/moon/lamp lights.
  */
 export class MapBuilder {
   readonly group = new THREE.Group();
   readonly colliders: Collider[] = [];
   readonly hittables: THREE.Object3D[] = [];
   readonly spawnPoints: THREE.Vector3[] = [];
+  readonly fires: Fire[] = [];
+  readonly firePositions: THREE.Vector3[] = [];
   readonly playerStart = new THREE.Vector3(0, 0, 24);
 
   constructor() {
     this.buildSky();
     this.buildGroundAndWalls();
-    this.buildLights();
+    this.buildFires();
     this.buildStructures();
     this.buildProps();
     this.buildSpawns();
@@ -184,8 +189,8 @@ export class MapBuilder {
         depthWrite: false,
         fog: false,
         uniforms: {
-          top: { value: new THREE.Color(0x0a1522) },
-          bottom: { value: new THREE.Color(0x0e1218) },
+          top: { value: new THREE.Color(0x010204) },
+          bottom: { value: new THREE.Color(0x030507) },
         },
         vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
         fragmentShader: `uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
@@ -195,6 +200,31 @@ export class MapBuilder {
     );
     sky.frustumCulled = false;
     this.group.add(sky);
+
+    // faint stars — decoration only, they emit no light
+    const starPos: number[] = [];
+    for (let i = 0; i < 260; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const y = 0.18 + Math.random() * 0.8;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      starPos.push(Math.cos(a) * r * 250, y * 250, Math.sin(a) * r * 250);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+    const stars = new THREE.Points(
+      starGeo,
+      new THREE.PointsMaterial({
+        color: 0x7f92b6,
+        size: 1.6,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: 0.5,
+        fog: false,
+        depthWrite: false,
+      }),
+    );
+    stars.frustumCulled = false;
+    this.group.add(stars);
   }
 
   private buildGroundAndWalls(): void {
@@ -220,55 +250,31 @@ export class MapBuilder {
     }
   }
 
-  // ------------------------------------------------------------------- lights
-  private buildLights(): void {
-    const hemi = new THREE.HemisphereLight(0x3a4a5c, 0x0d0f12, 0.9);
-    this.group.add(hemi);
-
-    const moon = new THREE.DirectionalLight(0x9fb4d8, 0.95);
-    moon.position.set(28, 42, -18);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(2048, 2048);
-    moon.shadow.camera.near = 1;
-    moon.shadow.camera.far = 130;
-    moon.shadow.camera.left = -48;
-    moon.shadow.camera.right = 48;
-    moon.shadow.camera.top = 48;
-    moon.shadow.camera.bottom = -48;
-    moon.shadow.bias = -0.0006;
-    moon.shadow.normalBias = 0.03;
-    this.group.add(moon);
-    this.group.add(moon.target);
-
-    // sodium work lights on poles
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1d2126, roughness: 0.7, metalness: 0.6 });
-    const headMat = new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      emissive: 0xffa14d,
-      emissiveIntensity: 3.2,
-      roughness: 0.5,
-    });
-    const lampPositions: Array<[number, number]> = [
+  // ------------------------------------------------------------------- fires
+  private buildFires(): void {
+    // oil drums burning around the yard — the arena's only light sources
+    const fireBarrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.95, 14);
+    const fireBarrelMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.7, metalness: 0.4, color: 0x4a4440 });
+    const spots: Array<[number, number]> = [
       [-26, 22],
       [26, 22],
       [-26, -22],
       [26, -22],
-      [0, -28],
-      [0, 28],
+      [0, -26],
+      [-14, -4],
     ];
-    for (const [x, z] of lampPositions) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 6, 8), poleMat);
-      pole.position.set(x, 3, z);
-      pole.castShadow = true;
-      this.group.add(pole);
-
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.34), headMat);
-      head.position.set(x, 6.05, z + (z > 0 ? -0.5 : 0.5));
-      this.group.add(head);
-
-      const light = new THREE.PointLight(0xffab5c, 130, 42, 2);
-      light.position.set(x, 5.9, z + (z > 0 ? -0.6 : 0.6));
-      this.group.add(light);
+    for (let i = 0; i < spots.length; i++) {
+      const [x, z] = spots[i];
+      const { object, fire } = createFire(fireBarrelGeo, fireBarrelMat, x, z, i * 13.7 + 5);
+      this.group.add(object);
+      this.fires.push(fire);
+      this.firePositions.push(new THREE.Vector3(x, 1.4, z));
+      const drum = object.children[0] as THREE.Mesh;
+      this.hittables.push(drum);
+      this.colliders.push({
+        min: new THREE.Vector3(x - 0.46, 0, z - 0.46),
+        max: new THREE.Vector3(x + 0.46, 1.1, z + 0.46),
+      });
     }
   }
 

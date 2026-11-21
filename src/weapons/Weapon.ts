@@ -31,21 +31,22 @@ const TMP_UP = new THREE.Vector3();
 const TMP_DIR = new THREE.Vector3();
 
 /**
- * KSR-9 SMG: full-auto hitscan, ADS, recoil viewpunch, muzzle flash,
- * tracers, shell ejection, bullet decals and weapon bloom.
+ * P9C sidearm: real GLTF pistol with gloved hands, fast semi-auto hitscan,
+ * ADS, recoil viewpunch, muzzle flash, tracers, shell ejection, bullet
+ * decals and weapon bloom.
  */
 export class Weapon {
-  readonly name = 'KSR-9';
-  mag = 30;
-  readonly magSize = 30;
-  reserve = 150;
-  readonly damage = 26;
+  readonly name = 'P9C';
+  mag = 15;
+  readonly magSize = 15;
+  reserve = 90;
+  readonly damage = 34;
   aimBlend = 0;
   reloading = false;
   /** shared world-FX bundle handed to the enemy manager */
   readonly fx: EnemyFx;
 
-  private readonly fireInterval = 60 / 780;
+  private readonly fireInterval = 0.15;
   private cooldown = 0;
   private dryCooldown = 0;
   private bloom = 0;
@@ -56,10 +57,10 @@ export class Weapon {
   /** reload timeline: [time in seconds, foley stage] — matches the viewmodel keyframes */
   private static readonly RELOAD_EVENTS = [
     [0.32, 'release'],
-    [0.7, 'out'],
-    [1.42, 'in'],
-    [1.5, 'bolt1'],
-    [1.6, 'bolt2'],
+    [0.85, 'out'],
+    [1.5, 'in'],
+    [1.62, 'bolt1'],
+    [1.72, 'bolt2'],
   ] as const;
 
   private flash: FlashPool;
@@ -87,7 +88,7 @@ export class Weapon {
 
   reset(): void {
     this.mag = this.magSize;
-    this.reserve = 150;
+    this.reserve = 90;
     this.reloading = false;
     this.aimBlend = 0;
     this.cooldown = 0;
@@ -220,7 +221,7 @@ export class Weapon {
     this.flash.spawn(TMP_MUZZLE);
     this.tracers.spawn(TMP_MUZZLE, TMP_END);
     this.shells.spawn(
-      this.camera.localToWorld(TMP_PORT.set(0.14, -0.1, -0.32)),
+      this.camera.localToWorld(TMP_PORT.set(0.12, -0.08, -0.2)),
       TMP_RIGHT,
     );
 
