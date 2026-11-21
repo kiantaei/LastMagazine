@@ -81,7 +81,7 @@ export class Weapon {
     this.tracers = new TracerPool(scene, 28);
     this.shells = new ShellPool(scene, 16, hittables);
     this.impacts = new ImpactPool(scene);
-    this.debris = new DebrisPool(scene, 3, hittables);
+    this.debris = new DebrisPool(scene, 3, hittables, () => this.vm.makeMagPropMesh());
     this.fx = { flash: this.flash, tracers: this.tracers, impacts: this.impacts, sfx };
   }
 

@@ -1,8 +1,10 @@
 # LAST MAGAZINE — Bodycam Ops
 
 A **bodycam-style first-person shooter** that runs entirely in the browser.
-Built with **npm + Vite + TypeScript + three.js** — every texture, every sound
-and every model is generated procedurally at runtime. **Zero binary assets.**
+Built with **npm + Vite + TypeScript + three.js** — all textures, sounds and
+effects are generated procedurally at runtime, on top of **real GLTF 3D
+models** for the characters and weapons (see
+[public/models/CREDITS.md](public/models/CREDITS.md)).
 
 You are the camera. Hold Night Yard K-7 against escalating waves of hostiles,
 with a weapon-mounted light cutting through the dark and a rig that bobs,
@@ -45,6 +47,28 @@ Esc pauses, click to resume.
 
 ## What's inside
 
+### Real 3D models
+
+- **Hostiles** are the rigged **Soldier** GLTF from the three.js example
+  assets (Mixamo skeleton, `Idle` / `Walk` / `Run` clips), skeleton-cloned
+  per hostile with a dedicated `AnimationMixer` — Run is time-scaled to
+  match each soldier's movement speed. Height-normalized to 1.78 m from
+  the bind-pose bbox.
+- **The KSR-9 viewmodel** is a Quaternius *Sci-Fi Modular Guns* SMG
+  (CC0), normalized so the barrel points -z and the model is centered at
+  a real-world 0.62 m length. Its **magazine is a separate node** cloned
+  out of the model into gun space — the reload animation slides the actual
+  magazine out of the well, drops it as a ballistic prop built from the
+  same geometry, then seats a fresh one.
+- **Enemy rifles** are the Quaternius AR model, slung across the chest
+  with a world-space muzzle point for tracers and flash lights.
+- Zone damage is delivered through invisible hitboxes (`colorWrite` /
+  `depthWrite` off, still raycast-able) at head/torso/leg heights.
+- Assets preload through a `LoadingManager` with a progress readout on
+  the menu; deploy is gated until everything is loaded.
+
+![Soldiers](docs/screenshot-soldier.png)
+
 ### The bodycam feel
 
 - **Camera rig springs** — walk-cycle head bob with figure-eight motion,
@@ -66,14 +90,13 @@ Esc pauses, click to resume.
 
 - Full-auto hitscan SMG (780 RPM) with a spread model: hip vs ADS bloom,
   movement and airborne penalties, per-shot bloom accumulation.
-- Iron sights that are *constructed* to align at screen center in ADS.
 - Zone damage on hostiles: head ×2.4, torso ×1.0, limbs ×0.6.
 - Pooled effects: muzzle flash sprites + point lights, moving tracers,
   ballistic shell ejection with ground bounce and positional tink,
   sparks, bullet-hole decals and smoke puffs.
-- The reload is fully animated: gun tilt, magazine slides out and drops as
-  a physical prop, fresh mag seats, charging handle pulls — synced to five
-  staged foley sounds.
+- The reload is fully animated: gun tilt, the model's own magazine slides
+  out and drops as a physical prop, fresh mag seats, bolt jolt — synced
+  to five staged foley sounds.
 
 ### Sound — 100% synthesized, no audio files
 
@@ -90,8 +113,8 @@ Every buffer is rendered with raw sample math at boot:
 
 ### Enemies & waves
 
-- Box-built tactical hostiles: walk-cycled legs, vest, helmet, glowing
-  visor, rifle with a world-space muzzle.
+- GLTF tactical soldiers (vest, helmet, visor) with blend-tree animations
+  and a chest-slung AR rifle with a world-space muzzle.
 - AI: advance with stuck-detection detours, combat strafing, throttled
   line-of-sight raycasts, burst fire with distance/sprint/crouch accuracy,
   near-miss whiz-bys, flinches, physical death falls.
@@ -113,20 +136,21 @@ Every buffer is rendered with raw sample math at boot:
 
 ```
 src/
-├── main.ts               orchestrator: renderer, game phases, frame loop
+├── main.ts               orchestrator: renderer, asset boot, phases, frame loop
 ├── core/
 │   ├── Input.ts          pointer-lock mouse look, consumable key presses
-│   └── CameraRig.ts      bodycam rig: bob, breathing, viewpunch, shake, FOV
+│   ├── CameraRig.ts      bodycam rig: bob, breathing, viewpunch, shake, FOV
+│   └── Assets.ts         GLTF preload + gun/character normalization helpers
 ├── world/
 │   └── MapBuilder.ts     procedural textures, geometry, lights, colliders
 ├── player/
 │   └── Player.ts         accel/friction movement, AABB collision + step-up
 ├── weapons/
-│   ├── Viewmodel.ts      gun mesh, sway/bob springs, reload keyframes
+│   ├── Viewmodel.ts      GLTF SMG, sway/bob springs, model-space mag reload
 │   ├── Weapon.ts         fire control, hitscan, reload state machine
 │   └── Fx.ts             pooled flashes, tracers, shells, impacts, debris
 ├── enemies/
-│   ├── Enemy.ts          mesh, AI states, LOS, burst fire, death physics
+│   ├── Enemy.ts          skinned soldier, mixer, AI states, LOS, death fall
 │   └── EnemyManager.ts   wave director, spawning, pooling, separation
 ├── audio/
 │   └── SFX.ts            procedural buffer synthesis + spatial playback
@@ -146,5 +170,7 @@ sides reuse the same tracer/flash/impact pools and the same audio engine.
   walls when hugging them.
 - Enemy navigation is steering-based (no navmesh) — they slide along cover
   and detour when stuck rather than pathfinding around it.
+- The enemy rifle is chest-mounted rather than bone-attached to the hands,
+  so it stays put while the Run clip swings the arms.
 - Headless/software-rendered environments run below 60 FPS; the game caps
   dt at 50 ms so timing stays correct on slow machines.

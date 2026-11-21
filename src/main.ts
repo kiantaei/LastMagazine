@@ -10,6 +10,7 @@ import { Weapon } from './weapons/Weapon';
 import { EnemyManager } from './enemies/EnemyManager';
 import { PostFX } from './fx/PostFX';
 import { Hud } from './ui/Hud';
+import { loadAssets } from './core/Assets';
 
 type Phase = 'menu' | 'playing' | 'paused' | 'dead';
 
@@ -45,7 +46,7 @@ const map = new MapBuilder();
 scene.add(map.group);
 
 // ---------------------------------------------------------------------------
-// World actors
+// World actors (model-dependent ones arrive with the asset load)
 // ---------------------------------------------------------------------------
 const player = new Player();
 player.pos.copy(map.playerStart);
@@ -57,42 +58,68 @@ const playerEvents = {
   onDamage: () => hud.flashDamage(),
 };
 
-const vm = new Viewmodel();
-vm.attach(rig.camera);
-
 // world geometry + enemy hit zones — one array shared by bullets
 const shootables = [...map.hittables];
 
-const weapon = new Weapon(rig.camera, rig, vm, sfx, shootables, scene, {
-  onAmmoChange: (mag, reserve) => hud.setAmmo(mag, reserve),
-  onHit: (killed) => {
-    hud.hitmarker(killed);
-    if (killed) sfx.killConfirm();
-    else sfx.hitmarker();
-  },
-});
-
-const enemies = new EnemyManager(scene, weapon.fx, map.colliders, map.hittables, shootables, map.spawnPoints, {
-  onKill: (kills) => {
-    hud.setKills(kills);
-    hud.killFeed();
-  },
-  onWaveStart: (wave, count) => {
-    hud.setWave(wave);
-    hud.waveBanner(wave, count);
-    sfx.blip();
-  },
-  onWaveClear: () => sfx.blip(),
-  onPlayerHit: (dmg) => {
-    player.damage(dmg, playerEvents);
-    sfx.hurt();
-    rig.addTrauma(0.3);
-    damagePulse = Math.min(1, damagePulse + dmg / 30);
-  },
-  onNearMiss: (pos) => sfx.whiz(pos),
-});
+let vm: Viewmodel | null = null;
+let weapon: Weapon | null = null;
+let enemies: EnemyManager | null = null;
 
 const postfx = new PostFX(renderer, scene, rig.camera, window.innerWidth, window.innerHeight);
+
+// ---------------------------------------------------------------------------
+// Async asset load → construct the model-dependent systems
+// ---------------------------------------------------------------------------
+loadAssets((ratio) => hud.setMenuLoading(ratio))
+  .then((assets) => {
+    vm = new Viewmodel(assets);
+    vm.attach(rig.camera);
+
+    weapon = new Weapon(rig.camera, rig, vm, sfx, shootables, scene, {
+      onAmmoChange: (mag, reserve) => hud.setAmmo(mag, reserve),
+      onHit: (killed) => {
+        hud.hitmarker(killed);
+        if (killed) sfx.killConfirm();
+        else sfx.hitmarker();
+      },
+    });
+
+    enemies = new EnemyManager(
+      scene,
+      weapon.fx,
+      map.colliders,
+      map.hittables,
+      shootables,
+      map.spawnPoints,
+      {
+        onKill: (kills) => {
+          hud.setKills(kills);
+          hud.killFeed();
+        },
+        onWaveStart: (wave, count) => {
+          hud.setWave(wave);
+          hud.waveBanner(wave, count);
+          sfx.blip();
+        },
+        onWaveClear: () => sfx.blip(),
+        onPlayerHit: (dmg) => {
+          player.damage(dmg, playerEvents);
+          sfx.hurt();
+          rig.addTrauma(0.3);
+          damagePulse = Math.min(1, damagePulse + dmg / 30);
+        },
+        onNearMiss: (pos) => sfx.whiz(pos),
+      },
+      assets,
+    );
+    enemies.start();
+    hud.setMenuReady();
+    console.log('[lastmagazine] assets loaded — deploy enabled');
+  })
+  .catch((err) => {
+    console.error('[lastmagazine] asset load failed', err);
+    hud.setMenuError();
+  });
 
 // ---------------------------------------------------------------------------
 // Game state machine: menu → playing ⇄ paused, playing → dead → playing
@@ -100,13 +127,16 @@ const postfx = new PostFX(renderer, scene, rig.camera, window.innerWidth, window
 let phase: Phase = 'menu';
 
 function startRun(): void {
+  const w = weapon;
+  const e = enemies;
+  if (!w || !e) return;
   player.reset(map.playerStart);
-  weapon.reset();
-  enemies.start();
+  w.reset();
+  e.start();
   rig.reset(0, 0); // playerStart faces the yard center
   damagePulse = 0;
   ambienceT = 6;
-  hud.setAmmo(weapon.mag, weapon.reserve);
+  hud.setAmmo(w.mag, w.reserve);
   hud.setKills(0);
   hud.setWave(1);
 }
@@ -126,7 +156,7 @@ input.onLockChanged = (locked) => {
 // any click on the page (menu, pause, death overlays included) re-engages
 // pointer lock — the overlays sit above the canvas and would eat the event
 document.addEventListener('click', () => {
-  if (!input.locked) input.requestLock();
+  if (weapon && !input.locked) input.requestLock();
 });
 
 // touch devices get a warning instead of a broken game
@@ -166,7 +196,7 @@ renderer.setAnimationLoop(() => {
   const jump = input.wasPressed('Space');
   const groundSpeed = Math.hypot(player.vel.x, player.vel.z);
 
-  if (phase === 'playing') {
+  if (phase === 'playing' && weapon && enemies) {
     player.update(dt, input.keys, jump, rig.yaw, weapon.aimBlend, map.colliders, playerEvents);
     weapon.update(dt, {
       firing: input.firing,
@@ -202,6 +232,7 @@ renderer.setAnimationLoop(() => {
   }
 
   // camera rig always animates (death slump, pause idle)
+  const aim = weapon?.aimBlend ?? 0;
   state.pos = player.pos;
   state.eyeHeight = player.eyeHeight;
   state.groundSpeed = phase === 'playing' ? groundSpeed : 0;
@@ -209,17 +240,17 @@ renderer.setAnimationLoop(() => {
   state.sprinting = player.sprinting;
   state.crouching = player.crouching;
   state.dead = player.dead;
-  state.aim = weapon.aimBlend;
-  rig.setTargetFov(102 + (player.sprinting ? 4 : 0) - weapon.aimBlend * 34);
+  state.aim = aim;
+  rig.setTargetFov(102 + (player.sprinting ? 4 : 0) - aim * 34);
   rig.update(dt, state, phase === 'playing' ? lx : 0, phase === 'playing' ? ly : 0);
 
   // HUD + grade
   damagePulse = Math.max(0, damagePulse - dt * 2.1);
   const lowHp = player.health < 35 ? 1 - player.health / 35 : 0;
   hud.frame(dt, {
-    mag: weapon.mag,
-    reserve: weapon.reserve,
-    reloadProgress: weapon.reloadProgress,
+    mag: weapon?.mag ?? 0,
+    reserve: weapon?.reserve ?? 0,
+    reloadProgress: weapon?.reloadProgress ?? 0,
     health: player.health,
   });
   postfx.update(dt, damagePulse, lowHp);
@@ -239,3 +270,12 @@ window.addEventListener('resize', () => {
 });
 
 console.log('[lastmagazine] bodycam ops ready');
+
+// minimal debug/testing hook (harmless in production)
+(window as unknown as Record<string, unknown>).__lm = {
+  get enemies() {
+    return enemies;
+  },
+  player,
+  rig,
+};

@@ -386,13 +386,20 @@ export class DebrisPool {
   private idx = 0;
   private ray: THREE.Raycaster;
 
-  constructor(scene: THREE.Scene, count = 3, private hittables: THREE.Object3D[] = []) {
+  constructor(
+    scene: THREE.Scene,
+    count = 3,
+    private hittables: THREE.Object3D[] = [],
+    makeMesh: () => THREE.Mesh = () =>
+      new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.17, 0.085),
+        new THREE.MeshStandardMaterial({ color: 0x101215, metalness: 0.6, roughness: 0.5 }),
+      ),
+  ) {
     this.ray = new THREE.Raycaster();
     this.ray.far = 3;
-    const geo = new THREE.BoxGeometry(0.05, 0.17, 0.085);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x101215, metalness: 0.6, roughness: 0.5 });
     for (let i = 0; i < count; i++) {
-      const m = new THREE.Mesh(geo, mat.clone());
+      const m = makeMesh();
       m.visible = false;
       m.castShadow = true;
       scene.add(m);

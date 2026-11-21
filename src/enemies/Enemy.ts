@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Collider } from '../world/MapBuilder';
 import type { SFX } from '../audio/SFX';
 import type { FlashPool, TracerPool, ImpactPool } from '../weapons/Fx';
+import { normalizeCharacter, normalizeGun, type Assets } from '../core/Assets';
 
 export interface EnemyFx {
   flash: FlashPool;
@@ -26,14 +28,16 @@ export interface EnemyContext {
 type Part = 'head' | 'torso' | 'limb';
 const PART_MULT: Record<Part, number> = { head: 2.4, torso: 1, limb: 0.6 };
 
+const SOLDIER_HEIGHT = 1.78;
+const RIFLE_LENGTH = 0.78;
+
 const TMP_V1 = new THREE.Vector3();
 const TMP_V2 = new THREE.Vector3();
-const DOWN = new THREE.Vector3(0, -1, 0);
 
 /**
- * Hostile operative: box-built tactical figure with advance/combat AI,
- * line-of-sight checks, burst fire with distance-based accuracy,
- * zone damage (head/torso/limbs) and a physical death fall.
+ * Hostile operative: a rigged, animation-driven GLTF soldier with
+ * advance/combat AI, line-of-sight checks, burst fire with distance-based
+ * accuracy, invisible zone hitboxes and a physical death fall.
  */
 export class Enemy {
   readonly group = new THREE.Group();
@@ -41,14 +45,12 @@ export class Enemy {
   hp = 100;
   state: 'advance' | 'combat' | 'dead' = 'advance';
 
-  private head!: THREE.Mesh;
-  private torso!: THREE.Mesh;
-  private legL!: THREE.Mesh;
-  private legR!: THREE.Mesh;
+  private mixer: THREE.AnimationMixer | null = null;
+  private actions: Partial<Record<'Idle' | 'Walk' | 'Run', THREE.AnimationAction>> = {};
+  private currentAction: THREE.AnimationAction | null = null;
   private muzzleRef = new THREE.Object3D();
   private ray = new THREE.Raycaster();
 
-  private walkT = 0;
   private flinchT = 0;
   private losTimer = 0;
   private hasLOS = false;
@@ -69,60 +71,60 @@ export class Enemy {
 
   onKilled: (() => void) | null = null;
 
-  constructor(scene: THREE.Scene) {
-    this.build(scene);
-    this.deactivate();
-  }
-
-  private build(scene: THREE.Scene): void {
-    const uniform = new THREE.MeshStandardMaterial({ color: 0x242a26, roughness: 0.82, metalness: 0.12 });
-    const gear = new THREE.MeshStandardMaterial({ color: 0x191d20, roughness: 0.7, metalness: 0.25 });
-    const visor = new THREE.MeshStandardMaterial({
-      color: 0x0a0a0a,
-      emissive: 0x8a1616,
-      emissiveIntensity: 1.4,
-      roughness: 0.4,
+  constructor(scene: THREE.Scene, assets: Assets) {
+    // --- animated soldier -------------------------------------------------
+    const soldier = skeletonClone(assets.soldier.scene);
+    soldier.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        mesh.frustumCulled = false; // skinned bbox culling glitches
+      }
     });
+    const norm = normalizeCharacter(soldier, SOLDIER_HEIGHT);
+    this.group.add(norm.group);
 
-    const mk = (
-      geo: THREE.BufferGeometry,
-      mat: THREE.Material,
+    this.mixer = new THREE.AnimationMixer(soldier);
+    for (const clip of assets.soldier.clips) {
+      if (clip.name === 'Idle' || clip.name === 'Walk' || clip.name === 'Run') {
+        this.actions[clip.name] = this.mixer.clipAction(clip);
+      }
+    }
+
+    // --- rifle slung at chest ----------------------------------------------
+    const rifle = normalizeGun(assets.ar.scene, RIFLE_LENGTH);
+    rifle.group.position.set(0.17, 1.16, -0.2);
+    rifle.group.rotation.set(0.12, 0, -0.08);
+    this.group.add(rifle.group);
+
+    this.muzzleRef.position.set(0.17, 1.22, -0.66);
+    this.group.add(this.muzzleRef);
+
+    // --- invisible hit zones ------------------------------------------------
+    // colorWrite/depthWrite off: guaranteed not to draw, still raycast-able
+    const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+    const hitbox = (
+      w: number,
+      h: number,
+      d: number,
       x: number,
       y: number,
       z: number,
-      part: Part | null,
-    ): THREE.Mesh => {
-      const m = new THREE.Mesh(geo, mat);
+      part: Part,
+    ): void => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), hitMat);
       m.position.set(x, y, z);
-      m.castShadow = true;
+      m.userData.enemy = this;
+      m.userData.mult = PART_MULT[part];
       this.group.add(m);
-      if (part) {
-        m.userData.enemy = this;
-        m.userData.mult = PART_MULT[part];
-        this.hitMeshes.push(m);
-      }
-      return m;
+      this.hitMeshes.push(m);
     };
-
-    // legs pivot at the hip: geometry translated down so origin sits on top
-    const legGeo = new THREE.BoxGeometry(0.17, 0.88, 0.19);
-    legGeo.translate(0, -0.44, 0);
-    this.legL = mk(legGeo, gear, -0.11, 0.9, 0, 'limb');
-    this.legR = mk(legGeo.clone(), gear, 0.11, 0.9, 0, 'limb');
-
-    this.torso = mk(new THREE.BoxGeometry(0.44, 0.62, 0.28), uniform, 0, 1.22, 0, 'torso');
-    mk(new THREE.BoxGeometry(0.48, 0.2, 0.3), gear, 0, 1.4, 0, 'torso'); // vest plate
-    this.head = mk(new THREE.BoxGeometry(0.23, 0.25, 0.24), gear, 0, 1.68, 0, 'head');
-    mk(new THREE.BoxGeometry(0.25, 0.09, 0.26), gear, 0, 1.79, 0, 'head'); // helmet
-    mk(new THREE.BoxGeometry(0.19, 0.05, 0.02), visor, 0, 1.68, -0.13, null); // visor glow (no hit zone)
-
-    // rifle held at the ready
-    const rifle = mk(new THREE.BoxGeometry(0.05, 0.09, 0.52), gear, 0.18, 1.28, -0.22, null);
-    rifle.rotation.x = 0.06;
-    this.muzzleRef.position.set(0.18, 1.3, -0.5);
-    this.group.add(this.muzzleRef);
+    hitbox(0.26, 0.3, 0.28, 0, 1.62, 0, 'head');
+    hitbox(0.44, 0.64, 0.36, 0, 1.12, 0, 'torso');
+    hitbox(0.42, 0.92, 0.34, 0, 0.45, 0, 'limb');
 
     scene.add(this.group);
+    this.deactivate();
   }
 
   activate(pos: THREE.Vector3): void {
@@ -143,7 +145,8 @@ export class Enemy {
     this.stuckTimer = 0;
     this.detourTimer = 0;
     this.lastPos.copy(pos);
-    for (const m of this.hitMeshes) m.visible = true;
+    if (this.mixer) this.mixer.timeScale = 1;
+    this.setAnim('Run');
   }
 
   deactivate(): void {
@@ -165,17 +168,16 @@ export class Enemy {
     this.hp -= amount;
     this.flinchT = 0.14;
     fx.impacts.spawn(point, TMP_V1.copy(dir).negate(), 'flesh');
-    if (this.hp <= 0) this.die(dir, fx);
+    if (this.hp <= 0) this.die(dir);
   }
 
-  private die(dir: THREE.Vector3, fx: EnemyFx): void {
+  private die(dir: THREE.Vector3): void {
     this.state = 'dead';
     this.deathT = 0;
     this.burstLeft = 0;
-    // fall away from the shot direction
     this.fallAxis.set(dir.z, 0, -dir.x).normalize();
+    if (this.mixer) this.mixer.stopAllAction();
     this.onKilled?.();
-    void fx;
   }
 
   update(c: EnemyContext): void {
@@ -184,6 +186,7 @@ export class Enemy {
       return;
     }
     const dt = c.dt;
+    this.mixer?.update(dt);
     this.flinchT = Math.max(0, this.flinchT - dt);
 
     // line of sight, throttled
@@ -202,6 +205,7 @@ export class Enemy {
       if (dist < this.preferredRange && this.hasLOS) {
         this.state = 'combat';
         this.burstCd = 0.35 + Math.random() * 0.5;
+        this.setAnim('Idle');
       } else {
         this.advance(c, toPlayer, dist);
       }
@@ -209,31 +213,27 @@ export class Enemy {
     if (this.state === 'combat') {
       if (!this.hasLOS || dist > this.preferredRange + 4) {
         this.state = 'advance';
+        this.setAnim('Run');
       } else {
         this.combat(c, toPlayer, dist);
       }
     }
 
     // face the player when engaging
-    const targetYaw = Math.atan2(toPlayer.x, toPlayer.z);
     if (this.state === 'combat') {
+      const targetYaw = Math.atan2(toPlayer.x, toPlayer.z);
       let dy = targetYaw - this.group.rotation.y;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-      this.group.rotation.y += dy * Math.min(1, dt * 7);
+      this.group.rotation.y += dy * Math.min(1, c.dt * 7);
     }
+  }
 
-    // walk animation
-    const moving = this.state === 'advance';
-    if (moving) {
-      this.walkT += dt * 9;
-      const swing = Math.sin(this.walkT) * 0.55;
-      this.legL.rotation.x = swing;
-      this.legR.rotation.x = -swing;
-      this.group.position.y = Math.abs(Math.sin(this.walkT)) * 0.04;
-    } else {
-      this.legL.rotation.x *= 1 - Math.min(1, dt * 8);
-      this.legR.rotation.x *= 1 - Math.min(1, dt * 8);
-    }
+  private setAnim(name: 'Idle' | 'Walk' | 'Run', fade = 0.22): void {
+    const next = this.actions[name];
+    if (!next || this.currentAction === next) return;
+    next.reset().fadeIn(fade).play();
+    this.currentAction?.fadeOut(fade);
+    this.currentAction = next;
   }
 
   private advance(c: EnemyContext, toPlayer: THREE.Vector3, dist: number): void {
@@ -259,12 +259,14 @@ export class Enemy {
     }
 
     const speed = this.advanceSpeed * (this.flinchT > 0 ? 0.4 : 1);
+    if (this.mixer) this.mixer.timeScale = Math.min(1.15, Math.max(0.65, speed / 3.1));
     const len = Math.hypot(dirX, dirZ) || 1;
     this.moveBy((dirX / len) * speed * dt, (dirZ / len) * speed * dt, c.colliders);
   }
 
   private combat(c: EnemyContext, toPlayer: THREE.Vector3, dist: number): void {
     const dt = c.dt;
+    if (this.mixer) this.mixer.timeScale = 1;
     // strafe around the player
     this.strafeTimer -= dt;
     if (this.strafeTimer <= 0) {
@@ -300,7 +302,7 @@ export class Enemy {
   private fireShot(c: EnemyContext): void {
     this.group.updateMatrixWorld(true);
     const muzzle = this.muzzleRef.getWorldPosition(TMP_V2);
-    this.fxFlash(c, muzzle);
+    c.fx.flash.spawn(muzzle, 0.7);
     c.fx.sfx.distantShot(muzzle);
 
     const eye = c.playerEye;
@@ -340,10 +342,6 @@ export class Enemy {
     c.fx.tracers.spawn(muzzle, tracerEnd);
   }
 
-  private fxFlash(c: EnemyContext, muzzle: THREE.Vector3): void {
-    c.fx.flash.spawn(muzzle, 0.7);
-  }
-
   private checkLOS(c: EnemyContext): boolean {
     const eye = this.eyePos;
     const target = c.playerEye;
@@ -363,7 +361,7 @@ export class Enemy {
     p.z += dz;
     const r = 0.38;
     for (const col of colliders) {
-      if (col.max.y < 0.35 || col.min.y > 1.75) continue; // overhead or ground trim
+      if (col.max.y < 0.35 || col.min.y > 1.75) continue;
       if (p.x + r <= col.min.x || p.x - r >= col.max.x) continue;
       if (p.z + r <= col.min.z || p.z - r >= col.max.z) continue;
       const pxL = p.x + r - col.min.x;

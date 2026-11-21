@@ -28,6 +28,7 @@ export class Hud {
   private pauseEl = $('pause');
   private deathEl = $('death');
   private deathStatsEl = $('death-stats');
+  private menuCta = $('menu-cta');
 
   private tsAcc = 1;
   private hmTimer = 0;
@@ -80,6 +81,22 @@ export class Hud {
 
   flashDamage(): void {
     this.dmgOpacity = Math.min(0.6, this.dmgOpacity + 0.38);
+  }
+
+  setMenuLoading(ratio: number): void {
+    this.menuCta.textContent = `LOADING MODELS … ${Math.round(ratio * 100)}%`;
+    this.menuCta.style.opacity = '0.55';
+  }
+
+  setMenuReady(): void {
+    this.menuCta.textContent = '▸ CLICK TO DEPLOY ◂';
+    this.menuCta.style.opacity = '1';
+  }
+
+  setMenuError(): void {
+    this.menuCta.textContent = 'MODEL LOAD FAILED — CHECK CONSOLE';
+    this.menuCta.style.opacity = '1';
+    this.menuCta.style.color = '#ff5040';
   }
 
   // ------------------------------------------------------------------ frame
