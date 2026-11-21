@@ -7,7 +7,8 @@ export type CrimeKind =
   | 'civKilled'
   | 'civRunOver'
   | 'copCarShot'
-  | 'copKilled';
+  | 'copKilled'
+  | 'robbery';
 
 const HEAT: Record<CrimeKind, number> = {
   gunshotNear: 1.6,
@@ -16,6 +17,7 @@ const HEAT: Record<CrimeKind, number> = {
   civRunOver: 22,
   copCarShot: 3.5,
   copKilled: 34,
+  robbery: 20,
 };
 
 const STAR_THRESHOLDS = [18, 38, 58, 78, 95]; // heat → stars 1..5

@@ -50,6 +50,34 @@ lock), Esc pauses, click to resume.
 
 ## What's inside
 
+### NPC variety & customization
+
+Every pedestrian is the same cheap base model diversified procedurally at
+spawn — no extra downloads:
+
+- **Body types** — average / fat / thin / muscular via non-uniform XYZ
+  scaling of the height-normalized model, plus per-NPC height jitter. The
+  scale pivots at the feet, so walk/run cycles keep ground contact and the
+  animations read correctly on fat and thin bodies alike.
+- **Outfits** — per-instance material clones recolored by palette: three
+  styles (full outfits, summer tanks + shorts, beach/swimwear with
+  skin-tone tops and loud shorts), six skin tones, seven hair colors and
+  the occasional bald head (hidden hair mesh).
+- **Cops** — the same body-type variation, but the duty uniform stays
+  police navy on every officer.
+
+### Street life: hunger, food & robbery
+
+- **Hunger** drains steadily (orange FOOD bar next to HP). Below 25% you
+  start starving: health drains until you eat or you die.
+- **Hot-dog carts** ($5, `E`) restore 55 hunger — cash matters.
+- **Robbery** — three glowing market kiosks (24/7 MARKET / LIQUOR / PAWN).
+  `E` at the register robs it for $140-320 and instantly raises the wanted
+  level; each register empties for 75 s.
+- **Streetlights** line every road — emissive heads that read as sodium
+  lamps without casting a single real light, keeping the
+  flashlight/muzzle-flash look.
+
 ### Open-world night city
 
 A 3×3-block grid (~170 m square) of dark high-rise blocks with sidewalks, a

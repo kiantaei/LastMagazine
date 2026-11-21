@@ -8,6 +8,8 @@ export interface HudFrame {
   stars: number;
   driving: boolean;
   speed: number;
+  hunger: number;
+  cash: number;
 }
 
 /**
@@ -31,6 +33,8 @@ export class Hud {
   private starsEl = $('hud-stars');
   private starEls: HTMLElement[] = [];
   private hpFill = $('hud-hp-fill');
+  private hungerFill = $('hud-hunger-fill');
+  private cashEl = $('hud-cash');
   private personaEl = $('hud-persona');
   private interactEl = $('hud-interact');
   private speedEl = $('hud-speed');
@@ -186,6 +190,14 @@ export class Hud {
     const hp = Math.max(0, Math.min(1, data.health / 100));
     this.hpFill.style.width = `${hp * 100}%`;
     this.hpFill.classList.toggle('low', hp < 0.35);
+
+    // hunger bar
+    const hunger = Math.max(0, Math.min(1, data.hunger / 100));
+    this.hungerFill.style.width = `${hunger * 100}%`;
+    this.hungerFill.classList.toggle('low', hunger < 0.25);
+
+    // cash
+    this.cashEl.textContent = `$${data.cash}`;
 
     // speed readout while driving
     if (data.driving) {

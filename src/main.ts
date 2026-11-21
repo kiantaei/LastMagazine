@@ -13,6 +13,7 @@ import { Car } from './vehicles/Car';
 import { Civilians } from './npcs/Civilians';
 import { Police } from './npcs/Police';
 import { Wanted } from './systems/Wanted';
+import { CityLife } from './systems/CityLife';
 import { PostFX } from './fx/PostFX';
 import { Hud } from './ui/Hud';
 import { loadAssets } from './core/Assets';
@@ -68,6 +69,7 @@ const worldHittables = [...city.hittables];
 const shootables = [...city.hittables];
 
 const wanted = new Wanted(hud, sfx);
+const cityLife = new CityLife(city.storePoints, city.cartPoints);
 
 let vm: Viewmodel | null = null;
 let weapon: Weapon | null = null;
@@ -271,6 +273,7 @@ function startRun(): void {
   player.reset(city.playerStart);
   w.reset();
   wanted.reset();
+  cityLife.reset();
   c.start();
   p.reset();
   // re-park everything
@@ -357,7 +360,19 @@ renderer.setAnimationLoop(() => {
         const fwdX = -Math.sin(rig.yaw);
         const fwdZ = -Math.cos(rig.yaw);
         const target = vehicles.aheadOf(player.pos, TMP_FWD.set(fwdX, 0, fwdZ)) ?? vehicles.nearest(player.pos);
-        if (target) enterCar(target);
+        if (target) {
+          enterCar(target);
+        } else {
+          // street life: buy food or rob a register
+          const cart = cityLife.nearestCart(player.pos);
+          if (cart && cityLife.cash >= 5) {
+            cityLife.eat(player);
+            sfx.blip();
+          } else {
+            const store = cityLife.nearestStore(player.pos);
+            if (store && store.available) cityLife.rob(store.index, player, wanted, hud);
+          }
+        }
       }
     }
 
@@ -418,11 +433,25 @@ renderer.setAnimationLoop(() => {
       });
       sfx.setEngine(false, 0);
 
-      // interact hint: a stealable car nearby
+      // interact hint: car > food cart > register
       const fwdX = -Math.sin(rig.yaw);
       const fwdZ = -Math.cos(rig.yaw);
       const near = vehicles.aheadOf(player.pos, TMP_FWD.set(fwdX, 0, fwdZ)) ?? vehicles.nearest(player.pos);
-      hud.setInteract(near ? 'E — ENTER VEHICLE' : null);
+      let hint: string | null = null;
+      if (near) {
+        hint = 'E — ENTER VEHICLE';
+      } else {
+        const cart = cityLife.nearestCart(player.pos);
+        if (cart) {
+          hint = cityLife.cash >= 5 ? 'E — HOT DOG ($5)' : 'HOT DOG $5 — NO CASH';
+        } else {
+          const store = cityLife.nearestStore(player.pos);
+          if (store) {
+            hint = store.available ? `E — ROB ${store.name} REGISTER` : `${store.name} — REGISTER EMPTY`;
+          }
+        }
+      }
+      hud.setInteract(hint);
     }
 
     // F toggles the weapon light (on foot only)
@@ -446,6 +475,7 @@ renderer.setAnimationLoop(() => {
       });
 
       wanted.update(dt, !!car);
+      cityLife.update(dt, player, wanted, hud);
       police.updateCount(wanted.stars, city.roadSpawnPoints, player.pos);
       wanted.setCopsAlive(police.aliveCount);
       police.update(dt, {
@@ -503,6 +533,8 @@ renderer.setAnimationLoop(() => {
     stars: wanted.stars,
     driving: !!car,
     speed: car?.speed ?? 0,
+    hunger: cityLife.hunger,
+    cash: cityLife.cash,
   });
 
   // bodycam glitch budget: damage, random telecom dropouts, death
@@ -551,6 +583,9 @@ const TMP_MUZZ = new THREE.Vector3();
   },
   get car() {
     return car;
+  },
+  get cityLife() {
+    return cityLife;
   },
   get vm() {
     return vm;
