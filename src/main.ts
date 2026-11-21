@@ -270,3 +270,12 @@ window.addEventListener('resize', () => {
 });
 
 console.log('[lastmagazine] bodycam ops ready');
+
+// minimal debug/testing hook (harmless in production)
+(window as unknown as Record<string, unknown>).__lm = {
+  get enemies() {
+    return enemies;
+  },
+  player,
+  rig,
+};
