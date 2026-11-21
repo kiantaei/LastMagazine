@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Collider } from '../world/City';
-import { normalizeCharacter, type Assets } from '../core/Assets';
+import type { Assets } from '../core/Assets';
 import type { WorldFx } from '../weapons/Fx';
+import { makeNpcVariant, type NpcVariant } from './NpcFactory';
 
 export interface NpcCtx {
   dt: number;
@@ -36,6 +36,7 @@ export class Civilian {
   state: 'wander' | 'flee' | 'dead' = 'wander';
 
   private mixer: THREE.AnimationMixer | null = null;
+  readonly variant: NpcVariant;
   private actions: Partial<Record<'Idle' | 'Walk' | 'Run' | 'Death', THREE.AnimationAction>> = {};
   private current: THREE.AnimationAction | null = null;
   private target = new THREE.Vector3();
@@ -53,16 +54,12 @@ export class Civilian {
     private walkPoints: THREE.Vector3[],
     assets: Assets,
   ) {
-    const man = skeletonClone(assets.man.template);
-    man.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
-        mesh.castShadow = true;
-        mesh.frustumCulled = false;
-      }
-    });
-    const norm = normalizeCharacter(man, HEIGHT);
-    this.group.add(norm.group);
+    // one cheap base model, diversified procedurally: body type via XYZ
+    // scaling, outfit via per-instance material clones (see NpcFactory)
+    const variant = makeNpcVariant(assets);
+    this.variant = variant;
+    const man = variant.group.children[0];
+    this.group.add(variant.group);
 
     this.mixer = new THREE.AnimationMixer(man);
     for (const clip of assets.man.clips) {

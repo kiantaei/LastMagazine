@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Assets } from '../core/Assets';
 import type { Collider } from '../world/City';
 import { Car } from '../vehicles/Car';
 import type { WorldFx } from '../weapons/Fx';
+import { makeNpcVariant, type NpcVariant } from './NpcFactory';
 
 export interface PoliceHooks {
   onPlayerHit: (damage: number, fromPos: THREE.Vector3) => void;
@@ -54,26 +54,23 @@ export class PoliceUnit {
     this.car = car;
     this.fx = fx;
     this.hooks = hooks;
-    // uniformed driver: navy shirt, dark pants, dark hair
-    this.driverScene = skeletonClone(assets.man.template) as THREE.Group;
-    const seats: Record<string, number> = { Shirt: 0x2b3a5c, Pants: 0x1e2740, Hair: 0x181820 };
-    this.driverScene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.isMesh) {
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const m of mats) {
-          const std = m as THREE.MeshStandardMaterial;
-          if (std?.name && seats[std.name] !== undefined) std.color.setHex(seats[std.name]);
-          mesh.frustumCulled = false;
-        }
-      }
+    // uniformed driver: body type/skin vary per cop, but the duty uniform
+    // stays police navy so units are always recognizable
+    const driver = makeNpcVariant(assets, {
+      style: 'full',
+      shirt: 0x2b3a5c,
+      pants: 0x1e2740,
+      height: 1.55,
     });
-    this.driverScene.scale.setScalar(0.94);
-    this.driverScene.position.set(0, -0.12, 0);
-    this.driverScene.rotation.set(0, 0, 0);
+    this.driverVariant = driver;
+    this.driverScene = driver.group;
+    this.driverScene.rotation.x = 0.14; // seated lean
+    this.driverScene.position.set(0, -0.1, 0);
     car.setDriver(this.driverScene);
     car.policeUnit = this;
   }
+
+  readonly driverVariant: NpcVariant;
 
   get activeState(): boolean {
     return this.active && !this.dead;
