@@ -12,16 +12,25 @@ export interface RigState {
   sprinting: boolean;
   crouching: boolean;
   dead: boolean;
-  aim: number;             // 0 = hip, 1 = full ADS
+}
+
+/** drive-chase camera state (third person, strapped to the car roof) */
+export interface DriveCam {
+  center: THREE.Vector3;   // car position
+  carYaw: number;          // car heading
+  camYaw: number;          // orbit yaw (mouse-controlled, auto-realigns)
+  speed: number;           // car speed m/s
 }
 
 const RIGHT = new THREE.Vector3();
+const TMP_C = new THREE.Vector3();
 
 /**
  * Bodycam camera rig.
  * Everything that makes the view feel like a camera bolted to a body:
  * walk-cycle head bob, idle breathing, viewpunch springs, trauma shake,
- * landing dips, ADS FOV zoom and a death slump.
+ * landing dips and a death slump — plus a third-person chase mode for
+ * driving (the bodycam is duct-taped to the roof).
  */
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
@@ -41,6 +50,7 @@ export class CameraRig {
   private deathT = 0;
   private fov = 102;
   private targetFov = 102;
+  private drive: DriveCam | null = null;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(this.fov, aspect, 0.05, 400);
@@ -49,6 +59,28 @@ export class CameraRig {
 
   setTargetFov(fov: number): void {
     this.targetFov = fov;
+  }
+
+  /** enter the drive chase camera (orbit seeded behind the car) */
+  setDrive(center: THREE.Vector3, carYaw: number): void {
+    this.drive = {
+      center,
+      carYaw,
+      camYaw: carYaw + Math.PI,
+      speed: 0,
+    };
+  }
+
+  /** refresh the drive target every frame */
+  syncDrive(center: THREE.Vector3, carYaw: number, speed: number): void {
+    if (!this.drive) return;
+    this.drive.center = center;
+    this.drive.carYaw = carYaw;
+    this.drive.speed = speed;
+  }
+
+  clearDrive(): void {
+    this.drive = null;
   }
 
   /** Instant viewpunch impulse (recoil, explosions). */
@@ -78,11 +110,15 @@ export class CameraRig {
   update(dt: number, s: RigState, lookDX: number, lookDY: number): void {
     this.time += dt;
 
+    if (this.drive) {
+      this.updateDrive(dt, lookDX);
+      return;
+    }
+
     // --- look ------------------------------------------------------------
     if (!s.dead) {
-      const sens = this.sensitivity * (1 - 0.55 * s.aim);
-      this.yaw -= lookDX * sens;
-      this.pitch -= lookDY * sens;
+      this.yaw -= lookDX * this.sensitivity;
+      this.pitch -= lookDY * this.sensitivity;
       const lim = 1.47;
       this.pitch = Math.max(-lim, Math.min(lim, this.pitch));
     }
@@ -146,5 +182,46 @@ export class CameraRig {
       this.yaw + shY,
       this.punchR + shR + Math.cos(this.bobT) * 0.011 * intensity + deathRoll,
     );
+  }
+
+  /** third-person chase cam while driving — orbit yaw auto-realigns behind the car */
+  private updateDrive(dt: number, lookDX: number): void {
+    const d = this.drive!;
+    // mouse orbits around the car; the cam slowly swings back behind it
+    d.camYaw -= lookDX * this.sensitivity * 1.4;
+    let diff = d.carYaw + Math.PI - d.camYaw;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    d.camYaw += diff * Math.min(1, dt * 1.4);
+
+    const radius = 5.2 + Math.min(1.6, Math.abs(d.speed) * 0.05);
+    const height = 2.3;
+    this.camera.position.set(
+      d.center.x - Math.sin(d.camYaw) * radius,
+      d.center.y + height,
+      d.center.z - Math.cos(d.camYaw) * radius,
+    );
+
+    // bodycam shake: trauma + engine vibration scaled by speed
+    this.trauma = Math.max(0, this.trauma - dt * 1.7);
+    const sh = this.trauma * this.trauma;
+    const t = this.time;
+    const vib = Math.min(1, Math.abs(d.speed) / 18);
+    const shY = (Math.sin(t * 53.7 + 1.3) + Math.sin(t * 31.1) * 0.6) * 0.012 * sh;
+    const shP = (Math.sin(t * 61.3) + Math.sin(t * 23.9) * 0.6) * (0.012 * sh + 0.0035 * vib);
+    const shR = Math.sin(t * 47.9 + 2.1) * (0.014 * sh + 0.004 * vib);
+
+    TMP_C.copy(d.center);
+    TMP_C.y += 1.15;
+    this.camera.lookAt(TMP_C);
+    this.camera.rotation.z += shR;
+    this.camera.rotation.x += shP;
+    this.camera.rotation.y += shY;
+
+    const want = 95 + Math.min(10, Math.abs(d.speed) * 0.5);
+    this.fov += (want - this.fov) * Math.min(1, dt * 6);
+    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 }

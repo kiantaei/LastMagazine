@@ -2,12 +2,10 @@ import * as THREE from 'three';
 import type { CameraRig } from '../core/CameraRig';
 import type { SFX } from '../audio/SFX';
 import { RELOAD_TIME, type Viewmodel } from './Viewmodel';
-import { DebrisPool, FlashPool, ImpactPool, ShellPool, TracerPool } from './Fx';
-import type { Enemy, EnemyFx } from '../enemies/Enemy';
+import { DebrisPool, FlashPool, ImpactPool, ShellPool, TracerPool, type WorldFx } from './Fx';
 
 export interface WeaponInput {
   firing: boolean;
-  aimHeld: boolean;
   reloadPressed: boolean;
   sprinting: boolean;
   moving: boolean;
@@ -15,11 +13,16 @@ export interface WeaponInput {
   speed: number;
   lookDX: number;
   lookDY: number;
+  /** while driving: world position for flash/tracer origins */
+  muzzleOverride?: THREE.Vector3;
 }
 
 export interface WeaponHooks {
   onAmmoChange?: (mag: number, reserve: number) => void;
   onHit?: (killed: boolean) => void;
+  onShot?: () => void;
+  onCivilianHit?: (killed: boolean) => void;
+  onPoliceHit?: (wrecked: boolean) => void;
 }
 
 const TMP_ORIGIN = new THREE.Vector3();
@@ -32,8 +35,8 @@ const TMP_DIR = new THREE.Vector3();
 
 /**
  * P9C sidearm: real GLTF pistol with gloved hands, fast semi-auto hitscan,
- * ADS, recoil viewpunch, muzzle flash, tracers, shell ejection, bullet
- * decals and weapon bloom.
+ * recoil viewpunch, muzzle flash, tracers, shell ejection, bullet decals
+ * and weapon bloom. No aim-down-sights — hip fire only.
  */
 export class Weapon {
   readonly name = 'P9C';
@@ -41,10 +44,9 @@ export class Weapon {
   readonly magSize = 15;
   reserve = 90;
   readonly damage = 34;
-  aimBlend = 0;
   reloading = false;
-  /** shared world-FX bundle handed to the enemy manager */
-  readonly fx: EnemyFx;
+  /** shared world-FX bundle handed to the NPC / police systems */
+  readonly fx: WorldFx;
 
   private readonly fireInterval = 0.15;
   private cooldown = 0;
@@ -90,7 +92,6 @@ export class Weapon {
     this.mag = this.magSize;
     this.reserve = 90;
     this.reloading = false;
-    this.aimBlend = 0;
     this.cooldown = 0;
     this.bloom = 0;
     this.reloadT = 0;
@@ -141,8 +142,8 @@ export class Weapon {
       this.vm.setReload(-1);
     }
 
-    const wantAim = input.aimHeld && !this.reloading && !input.sprinting ? 1 : 0;
-    this.aimBlend += (wantAim - this.aimBlend) * Math.min(1, dt * 10);
+    const wantAim = 0;
+    void wantAim;
 
     this.cooldown -= dt;
     this.dryCooldown -= dt;
@@ -166,7 +167,6 @@ export class Weapon {
 
     this.vm.update({
       dt,
-      aim: this.aimBlend,
       sprinting: input.sprinting,
       moving: input.moving,
       grounded: input.grounded,
@@ -187,9 +187,9 @@ export class Weapon {
     TMP_RIGHT.setFromMatrixColumn(this.camera.matrixWorld, 0);
     TMP_UP.setFromMatrixColumn(this.camera.matrixWorld, 1);
 
-    // spread cone: tighter when ADS, looser moving / airborne / sustained fire
+    // spread cone: looser moving / airborne / sustained fire — hip fire only
     const spread =
-      THREE.MathUtils.lerp(0.019, 0.0045, this.aimBlend) +
+      0.019 +
       (input.moving ? 0.009 : 0) +
       (input.grounded ? 0 : 0.024) +
       this.bloom;
@@ -204,11 +204,22 @@ export class Weapon {
     if (hits.length > 0) {
       const h = hits[0];
       TMP_END.copy(h.point);
-      const ud = h.object.userData as { enemy?: Enemy; mult?: number };
-      if (ud.enemy) {
-        const wasAlive = ud.enemy.alive;
-        ud.enemy.damage(this.damage * (ud.mult ?? 1), h.point, TMP_DIR, this.fx);
-        if (wasAlive) this.hooks.onHit?.(!ud.enemy.alive);
+      const ud = h.object.userData as {
+        npc?: { damage(amount: number, point: THREE.Vector3, dir: THREE.Vector3, byCar: boolean): void; alive: boolean };
+        policeUnit?: { damage(amount: number, point: THREE.Vector3, dir: THREE.Vector3): boolean };
+        mult?: number;
+      };
+      if (ud.npc) {
+        const wasAlive = ud.npc.alive;
+        ud.npc.damage(this.damage * (ud.mult ?? 1), h.point, TMP_DIR, false);
+        if (wasAlive) {
+          this.hooks.onHit?.(!ud.npc.alive);
+          this.hooks.onCivilianHit?.(!ud.npc.alive);
+        }
+      } else if (ud.policeUnit) {
+        const wrecked = ud.policeUnit.damage(this.damage, h.point, TMP_DIR);
+        this.hooks.onHit?.(wrecked);
+        this.hooks.onPoliceHit?.(wrecked);
       } else {
         const normal = h.face
           ? h.face.normal.clone().transformDirection(h.object.matrixWorld)
@@ -217,7 +228,11 @@ export class Weapon {
       }
     }
 
-    this.vm.getMuzzleWorldPos(TMP_MUZZLE);
+    if (input.muzzleOverride) {
+      TMP_MUZZLE.copy(input.muzzleOverride);
+    } else {
+      this.vm.getMuzzleWorldPos(TMP_MUZZLE);
+    }
     this.flash.spawn(TMP_MUZZLE);
     this.tracers.spawn(TMP_MUZZLE, TMP_END);
     this.shells.spawn(
@@ -228,7 +243,8 @@ export class Weapon {
     this.sfx.shot();
     this.rig.addPunch(0.013 + Math.random() * 0.004, (Math.random() - 0.5) * 0.007);
     this.rig.addTrauma(0.055);
-    this.vm.fireRecoil();
+    if (!input.muzzleOverride) this.vm.fireRecoil();
+    this.hooks.onShot?.();
     this.hooks.onAmmoChange?.(this.mag, this.reserve);
   }
 }

@@ -10,18 +10,29 @@ export interface NormalizedModel {
   width: number;
 }
 
+export type CarKind = 'sedan' | 'suv' | 'taxi' | 'cop';
+
+export interface CarAsset {
+  scene: THREE.Group;
+  /** body material (tintable) */
+  bodyMat: THREE.MeshStandardMaterial | null;
+  /** lightbar flash materials (cop only) */
+  barRed: THREE.MeshStandardMaterial | null;
+  barBlue: THREE.MeshStandardMaterial | null;
+}
+
+export interface ManAsset {
+  template: THREE.Group;
+  clips: THREE.AnimationClip[];
+  /** named materials for persona recolors (cloned per variant) */
+  mats: Record<string, THREE.MeshStandardMaterial>;
+}
+
 export interface Assets {
-  soldier: {
-    scene: THREE.Group;
-    clips: THREE.AnimationClip[];
-  };
-  smg: {
-    scene: THREE.Group;
-    magNode: THREE.Object3D | null;
-  };
+  man: ManAsset;
   smgMagazine: { scene: THREE.Group };
-  ar: { scene: THREE.Group };
   pistol: { scene: THREE.Group };
+  cars: Record<CarKind, CarAsset>;
   hands: {
     left: { scene: THREE.Group; bones: Map<string, THREE.Object3D> };
     right: { scene: THREE.Group; bones: Map<string, THREE.Object3D> };
@@ -49,7 +60,7 @@ function prepareHand(gltfScene: THREE.Object3D): { scene: THREE.Group; bones: Ma
       for (const m of mats) {
         const std = m as THREE.MeshStandardMaterial;
         if (std.color) {
-          std.color.setHex(0x1b1d20); // tactical glove
+          std.color.setHex(0x2b2f36); // tactical glove — dark but readable
           std.roughness = 0.88;
           std.metalness = 0.04;
         }
@@ -61,28 +72,89 @@ function prepareHand(gltfScene: THREE.Object3D): { scene: THREE.Group; bones: Ma
   return { scene, bones: indexNodes(scene) };
 }
 
+/** collect the named standard materials of a model (first match wins) */
+function namedMaterials(root: THREE.Object3D): Record<string, THREE.MeshStandardMaterial> {
+  const out: Record<string, THREE.MeshStandardMaterial> = {};
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const std = m as THREE.MeshStandardMaterial;
+        if (std?.name && !out[std.name]) out[std.name] = std;
+      }
+    }
+  });
+  return out;
+}
+
 /** Loads all runtime GLTF assets and reports coarse progress for the menu. */
 export async function loadAssets(onProgress?: (ratio: number) => void): Promise<Assets> {
   const manager = new THREE.LoadingManager();
   manager.onProgress = (_url, loaded, total) => onProgress?.(loaded / Math.max(1, total));
   const loader = new GLTFLoader(manager);
 
-  const [soldier, smg, mag, ar, pistol, handL, handR] = await Promise.all([
-    loader.loadAsync('/models/soldier.glb'),
-    loader.loadAsync('/models/smg.glb'),
+  const [man, mag, pistol, sedan, suv, taxi, cop, handL, handR] = await Promise.all([
+    loader.loadAsync('/models/man.glb'),
     loader.loadAsync('/models/smg_magazine.glb'),
-    loader.loadAsync('/models/ar.glb'),
     loader.loadAsync('/models/pistol.glb'),
+    loader.loadAsync('/models/car_sedan.glb'),
+    loader.loadAsync('/models/car_suv.glb'),
+    loader.loadAsync('/models/car_taxi.glb'),
+    loader.loadAsync('/models/car_cop.glb'),
     loader.loadAsync('/models/hand_left.glb'),
     loader.loadAsync('/models/hand_right.glb'),
   ]);
 
+  const carAsset = (gltf: { scene: THREE.Group }, tint: number): CarAsset => {
+    const mats = namedMaterials(gltf.scene);
+    const body = mats['Blue'] ?? mats['White'] ?? mats['Yellow'] ?? null;
+    if (body) {
+      body.color.setHex(tint);
+      body.roughness = 0.42;
+      body.metalness = 0.55;
+      // faint self-visibility so cars never fully vanish in the night
+      body.emissive = new THREE.Color(0x0a0d12);
+      body.emissiveIntensity = 1;
+    }
+    return {
+      scene: gltf.scene,
+      bodyMat: body,
+      barRed: mats['WhiteLights'] ?? null,
+      barBlue: mats['BlueLights'] ?? null,
+    };
+  };
+
+  // lift the new pistol's flat FBX materials so the spill light can read them
+  pistol.scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        const std = m as THREE.MeshStandardMaterial;
+        if (std?.color) {
+          std.color.multiplyScalar(1.7);
+          std.metalness = 0.25;
+          std.roughness = 0.5;
+        }
+      }
+    }
+  });
+
   return {
-    soldier: { scene: soldier.scene, clips: soldier.animations },
-    smg: { scene: smg.scene, magNode: smg.scene.getObjectByName('Magazine_SMG') ?? null },
+    man: {
+      template: man.scene,
+      clips: man.animations,
+      mats: namedMaterials(man.scene),
+    },
     smgMagazine: { scene: mag.scene },
-    ar: { scene: ar.scene },
     pistol: { scene: pistol.scene },
+    cars: {
+      sedan: carAsset(sedan, 0x8fa8c8),
+      suv: carAsset(suv, 0xb9bec4),
+      taxi: carAsset(taxi, 0xd8b418),
+      cop: carAsset(cop, 0x14161a),
+    },
     hands: {
       left: prepareHand(handL.scene),
       right: prepareHand(handR.scene),
@@ -139,6 +211,25 @@ export function normalizeCharacter(
 ): NormalizedModel {
   const { size, center, min } = measure(model);
   const scale = targetHeight / Math.max(size.y, 0.001);
+  const wrapper = new THREE.Group();
+  model.scale.setScalar(scale);
+  model.position.set(-center.x * scale, -min.y * scale, -center.z * scale);
+  wrapper.add(model);
+  wrapper.updateMatrixWorld(true);
+  const dims = measure(wrapper).size;
+  return { group: wrapper, length: dims.z, height: dims.y, width: dims.x };
+}
+
+/**
+ * Normalizes a vehicle model that already faces +z (Quaternius vehicles):
+ * scaled to targetLength, centered on x/z, wheels resting on y=0.
+ */
+export function normalizeVehicle(
+  model: THREE.Object3D,
+  targetLength: number,
+): NormalizedModel {
+  const { size, center, min } = measure(model);
+  const scale = targetLength / Math.max(size.z, 0.001);
   const wrapper = new THREE.Group();
   model.scale.setScalar(scale);
   model.position.set(-center.x * scale, -min.y * scale, -center.z * scale);

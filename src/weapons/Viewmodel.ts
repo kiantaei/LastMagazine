@@ -5,21 +5,19 @@ export const RELOAD_TIME = 1.9;
 
 const HIP_POS = new THREE.Vector3(0.17, -0.2, -0.42);
 const HIP_ROT = { x: 0, y: 0.03, z: 0.01 };
-const ADS_POS = new THREE.Vector3(0, -0.104, -0.36); // sight line onto screen center
 const SPRINT_POS = new THREE.Vector3(0.09, -0.24, -0.38);
 const SPRINT_ROT = { x: 0.5, y: 0.5, z: 0.15 };
 
 const PISTOL_LENGTH = 0.33;
 const MAG_LENGTH = 0.135;       // scaled from the SMG magazine
-const MAG_RAKE = -0.587;        // ≈ -33.6°, matches the grip rake
+const MAG_RAKE = 0.7;           // +40°, matches the new pistol's grip rake
 
-// grip anchors derived from the pistol geometry (gun space, gun points -z)
-const GRIP_UPPER = new THREE.Vector3(0.0, -0.031, 0.093);
-const MAG_REST = new THREE.Vector3(0.0, -0.062, 0.112);
+// grip anchors derived from the new pistol geometry (gun space, muzzle -z)
+const GRIP_UPPER = new THREE.Vector3(0.0, 0.033, -0.002);
+const MAG_REST = new THREE.Vector3(0.0, -0.001, 0.027);
 
 export interface VMContext {
   dt: number;
-  aim: number;        // 0..1 ADS blend (owned by Weapon)
   sprinting: boolean;
   moving: boolean;
   grounded: boolean;
@@ -55,7 +53,7 @@ export class Viewmodel {
   private heldMag: THREE.Object3D;
   private magRestPos = new THREE.Vector3();
   private magRestQuat = new THREE.Quaternion();
-  private magAxis = new THREE.Vector3(0, -Math.cos(0.587), Math.sin(0.587)).normalize();
+  private magAxis = new THREE.Vector3(0, -Math.cos(MAG_RAKE), Math.sin(MAG_RAKE)).normalize();
   private muzzleRef = new THREE.Object3D();
   private torch: THREE.SpotLight;
   private spill: THREE.PointLight;
@@ -100,7 +98,6 @@ export class Viewmodel {
     this.gunWrap.group.add(this.heldMag);
     this.magRestPos.copy(MAG_REST);
     this.magRestQuat.identity();
-
     // fresh magazine carried by the off hand
     this.freshMag = makeMag();
     this.freshMag.position.set(0.002, 0.052, 0.012);
@@ -140,15 +137,32 @@ export class Viewmodel {
     this.torch = torch;
 
     // flashlight spill: the weapon light bounces off the hands and gun —
-    // a faint, short-range glow that dies with the torch (same light source)
-    const spill = new THREE.PointLight(0xcfe0ff, 2.4, 1.9, 2);
+    // a faint, short-range glow that dies with the torch (same light source).
+    // Lives at SCENE level and tracks the gun every frame: camera-child
+    // lights are collected for the world but never illuminate the
+    // camera-child viewmodel meshes.
+    const spill = new THREE.PointLight(0xcfe0ff, 0, 3.5, 2);
     spill.position.set(0.08, -0.12, -0.3);
-    this.group.add(spill);
     this.spill = spill;
 
-    this.muzzleRef.position.set(0, 0.045, -(PISTOL_LENGTH / 2) - 0.025);
+    this.muzzleRef.position.set(0, 0.1, -(PISTOL_LENGTH / 2) - 0.025);
     this.group.add(this.muzzleRef);
+
+    // collect glove materials for persona tints
+    for (const hand of [this.handR, this.handL]) {
+      hand.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const m of mats) this.gloveMats.push(m as THREE.MeshStandardMaterial);
+        }
+      });
+    }
   }
+
+  private gloveMats: THREE.MeshStandardMaterial[] = [];
+  private suppressed = false;
+  private spillLocal = new THREE.Vector3();
 
   /** pose + place a glove hand so its wrist bone sits on the anchor */
   private seatHand(
@@ -176,8 +190,9 @@ export class Viewmodel {
     return wrap;
   }
 
-  attach(camera: THREE.Camera): void {
+  attach(camera: THREE.Camera, scene?: THREE.Scene): void {
     camera.add(this.group);
+    if (scene) scene.add(this.spill);
   }
 
   getTorchOn(): boolean {
@@ -188,6 +203,22 @@ export class Viewmodel {
   toggleTorch(): boolean {
     this.torchOn = !this.torchOn;
     return this.torchOn;
+  }
+
+  /** hide the whole viewmodel + kill its lights (while driving) */
+  setSuppressed(on: boolean): void {
+    this.suppressed = on;
+    this.group.visible = !on;
+    if (on) this.spill.intensity = 0;
+  }
+
+  /** persona glove tint */
+  setGloveTint(hex: number): void {
+    for (const m of this.gloveMats) {
+      m.color.setHex(hex);
+      m.roughness = 0.88;
+      m.metalness = 0.04;
+    }
   }
 
   fireRecoil(): void {
@@ -251,17 +282,16 @@ export class Viewmodel {
     const breathe = Math.sin(this.time * 1.3) * 0.0024;
 
     // pose blending
-    const aim = c.aim;
-    const wantSprint = c.sprinting && this.fireGlow <= 0 && aim < 0.3 ? 1 : 0;
+    const wantSprint = c.sprinting && this.fireGlow <= 0 ? 1 : 0;
     this.sprintBlend += (wantSprint - this.sprintBlend) * Math.min(1, dt * 8);
     const s = this.sprintBlend;
 
-    let px = THREE.MathUtils.lerp(HIP_POS.x, ADS_POS.x, aim);
-    let py = THREE.MathUtils.lerp(HIP_POS.y, ADS_POS.y, aim);
-    let pz = THREE.MathUtils.lerp(HIP_POS.z, ADS_POS.z, aim);
-    let rx = THREE.MathUtils.lerp(HIP_ROT.x, 0, aim);
-    let ry = THREE.MathUtils.lerp(HIP_ROT.y, 0, aim);
-    let rz = THREE.MathUtils.lerp(HIP_ROT.z, 0, aim);
+    let px = HIP_POS.x;
+    let py = HIP_POS.y;
+    let pz = HIP_POS.z;
+    let rx = HIP_ROT.x;
+    let ry = HIP_ROT.y;
+    let rz = HIP_ROT.z;
 
     px += (SPRINT_POS.x - px) * s;
     py += (SPRINT_POS.y - py) * s;
@@ -352,8 +382,14 @@ export class Viewmodel {
     this.torchDip = Math.max(0, this.torchDip - dt);
     const dipK = this.torchDip > 0 ? 0.45 + 0.55 * Math.abs(Math.sin(this.torchDip * 34)) : 1;
     const flicker = 0.965 + 0.035 * Math.sin(this.time * 43) * Math.sin(this.time * 17);
-    this.torch.intensity = 950 * this.torchLevel * flicker * dipK;
-    this.spill.intensity = 2.4 * this.torchLevel * dipK;
+    const suppressK = this.suppressed ? 0 : 1;
+    this.torch.intensity = 950 * this.torchLevel * flicker * dipK * suppressK;
+    this.spill.intensity = 8.5 * this.torchLevel * dipK * suppressK;
+    // scene-level spill hovers just off the gun's upper-right (gun sits at
+    // this.group origin — group space, no HIP offset baked in)
+    this.spillLocal.set(0.22, 0.15, -0.16);
+    this.group.localToWorld(this.spillLocal);
+    this.spill.position.copy(this.spillLocal);
     // the beam trails the eyes — pure handheld feel
     this.torchTarget.position.set(
       0.05 + this.lagX * 26 + bobX * 3,

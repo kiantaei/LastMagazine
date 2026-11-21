@@ -251,6 +251,60 @@ export class SFX {
       return (down + up) * 0.8;
     });
 
+    // --- car audio ----------------------------------------------------------
+    // engine hum: 1s seamless loop of low cylinders + intake noise
+    this.mk('engine', 1, (t) => {
+      const base = 52;
+      const cyl = Math.sin(Math.PI * 2 * base * t) * 0.6 + Math.sin(Math.PI * 2 * base * 2 * t) * 0.3;
+      const saw = ((base * t) % 1) * 2 - 1;
+      let lp = 0;
+      lp += ((Math.random() * 2 - 1) - lp) * 0.06;
+      return Math.tanh((cyl * 0.7 + saw * 0.22 + lp * 0.5) * 1.3) * 0.7;
+    });
+
+    // siren wail: 2s loop, freq glides 700↔880Hz with running phase for
+    // seamless looping
+    {
+      const sr2 = ctx.sampleRate;
+      const len2 = Math.floor(sr2 * 2);
+      const buf2 = ctx.createBuffer(1, len2, sr2);
+      const d2 = buf2.getChannelData(0);
+      let phase = 0;
+      for (let i = 0; i < len2; i++) {
+        const t = i / sr2;
+        const f = 700 + 185 * Math.sin((Math.PI * 2 * t) / 2);
+        phase += f / sr2;
+        const w = Math.sin(Math.PI * 2 * phase) * 0.5 + Math.sin(Math.PI * 2 * phase * 1.5) * 0.18;
+        d2[i] = Math.tanh(w * 1.4) * 0.55;
+      }
+      this.buffers.set('siren', buf2);
+    }
+
+    // crash: body thump + debris scatter
+    this.mk('crash', 0.55, (t) => {
+      const thump = Math.sin(Math.PI * 2 * (70 - t * 40) * t) * Math.exp(-t * 14) * 1.0;
+      let lp = 0;
+      lp += ((Math.random() * 2 - 1) - lp) * 0.11;
+      const clatter = lp * Math.exp(-t * 9) * 0.9;
+      const metallic = Math.sin(Math.PI * 2 * 320 * t) * Math.exp(-t * 20) * 0.3;
+      return Math.tanh((thump + clatter + metallic) * 1.4) * 0.85;
+    });
+
+    // wanted level up: two rising beeps
+    this.mk('wanted', 0.5, (t) => {
+      const b1 = t < 0.12 ? Math.sin(Math.PI * 2 * 620 * t) * Math.exp(-t * 18) : 0;
+      const t2 = t - 0.16;
+      const b2 = t2 > 0 && t2 < 0.2 ? Math.sin(Math.PI * 2 * 840 * t2) * Math.exp(-t2 * 12) : 0;
+      return (b1 + b2) * 0.6;
+    });
+
+    // car door
+    this.mk('door', 0.16, (t) => {
+      const slam = (Math.random() * 2 - 1) * Math.exp(-t * 60) * 0.8;
+      const latch = t > 0.04 ? Math.sin(Math.PI * 2 * 900 * (t - 0.04)) * Math.exp(-(t - 0.04) * 70) * 0.3 : 0;
+      return (slam + latch) * 0.8;
+    });
+
     // --- fire crackle loop (stateful synthesis, bypasses mk) ------------------
     const sr = ctx.sampleRate;
     const fireLen = Math.floor(sr * 3.2);
@@ -435,6 +489,67 @@ export class SFX {
 
   torchClick(): void {
     this.playBuffer(this.buffers.get('torchClick') as AudioBuffer, { gain: 0.45 });
+  }
+
+  // ------------------------------------------------------------ car audio
+  private engineNode: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private sirenNode: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+
+  /** creates the engine + siren loop nodes (idempotent, after start()) */
+  startCarAudio(): void {
+    if (!this.ctx || !this.master) return;
+    const engineBuf = this.buffers.get('engine');
+    if (engineBuf && !this.engineNode) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = engineBuf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g);
+      g.connect(this.master);
+      src.start();
+      this.engineNode = { src, gain: g };
+    }
+    const sirenBuf = this.buffers.get('siren');
+    if (sirenBuf && !this.sirenNode) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = sirenBuf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g);
+      g.connect(this.master);
+      src.start();
+      this.sirenNode = { src, gain: g };
+    }
+  }
+
+  /** engine hum: pitch+volume follow the rpm */
+  setEngine(on: boolean, rpm01: number): void {
+    if (!this.engineNode) return;
+    const now = this.audio.currentTime;
+    const g = on ? 0.1 + rpm01 * 0.13 : 0;
+    this.engineNode.gain.gain.linearRampToValueAtTime(g, now + 0.08);
+    this.engineNode.src.playbackRate.linearRampToValueAtTime(0.7 + rpm01 * 1.0, now + 0.1);
+  }
+
+  /** siren volume by wanted level + nearest cop distance */
+  setSiren(intensity: number): void {
+    if (!this.sirenNode) return;
+    const now = this.audio.currentTime;
+    this.sirenNode.gain.gain.linearRampToValueAtTime(Math.max(0, Math.min(1, intensity)) * 0.34, now + 0.15);
+  }
+
+  crash(intensity: number): void {
+    this.playBuffer(this.buffers.get('crash') as AudioBuffer, { gain: 0.35 + intensity * 0.45, wet: 0.2 });
+  }
+
+  starUp(): void {
+    this.playBuffer(this.buffers.get('wanted') as AudioBuffer, { gain: 0.5 });
+  }
+
+  doorSlam(): void {
+    this.playBuffer(this.buffers.get('door') as AudioBuffer, { gain: 0.5, wet: 0.15 });
   }
 
   /** spatialised crackle loops for every fire in the yard (once) */

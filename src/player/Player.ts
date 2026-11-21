@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Collider } from '../world/MapBuilder';
+import type { Collider } from '../world/City';
 
 export interface PlayerEvents {
   onFootstep?: (sprinting: boolean) => void;
@@ -54,7 +54,6 @@ export class Player {
     keys: Set<string>,
     jumpPressed: boolean,
     yaw: number,
-    aim: number,
     colliders: Collider[],
     events: PlayerEvents,
   ): void {
@@ -62,11 +61,9 @@ export class Player {
     const side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
 
     this.crouching = keys.has('KeyC') || keys.has('ControlLeft');
-    this.sprinting =
-      keys.has('ShiftLeft') && fwd > 0 && !this.crouching && aim < 0.3;
+    this.sprinting = keys.has('ShiftLeft') && fwd > 0 && !this.crouching;
 
-    let speed = this.crouching ? CROUCH_SPEED : this.sprinting ? SPRINT : WALK;
-    speed *= 1 - 0.35 * aim;
+    const speed = this.crouching ? CROUCH_SPEED : this.sprinting ? SPRINT : WALK;
 
     // wish direction in the yaw plane
     const fx = -Math.sin(yaw);
