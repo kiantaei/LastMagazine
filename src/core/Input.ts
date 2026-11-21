@@ -7,26 +7,29 @@ export class Input {
   readonly keys = new Set<string>();
   locked = false;
   firing = false;   // LMB held
-  aimHeld = false;  // RMB held
   onLockChanged: ((locked: boolean) => void) | null = null;
 
   private dx = 0;
   private dy = 0;
-  private consumed = new Set<string>();
+  private justPressed = new Set<string>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
+      if (e.code === 'Space' || e.code === 'Tab' || e.code === 'F5') e.preventDefault();
       if (e.repeat) return;
+      if (!this.keys.has(e.code)) this.justPressed.add(e.code); // true edge
       this.keys.add(e.code);
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      this.justPressed.delete(e.code);
+    });
     window.addEventListener('blur', () => {
       this.keys.clear();
+      this.justPressed.clear();
       this.firing = false;
-      this.aimHeld = false;
     });
 
     document.addEventListener('mousemove', (e) => {
@@ -38,11 +41,9 @@ export class Input {
     document.addEventListener('mousedown', (e) => {
       if (!this.locked) return;
       if (e.button === 0) this.firing = true;
-      if (e.button === 2) this.aimHeld = true;
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.firing = false;
-      if (e.button === 2) this.aimHeld = false;
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -50,7 +51,6 @@ export class Input {
       this.locked = document.pointerLockElement === this.canvas;
       if (!this.locked) {
         this.firing = false;
-        this.aimHeld = false;
         this.keys.clear();
       }
       this.onLockChanged?.(this.locked);
@@ -80,15 +80,16 @@ export class Input {
     return this.keys.has(code);
   }
 
+  /** true exactly once per physical key press (edge-triggered) */
   wasPressed(code: string): boolean {
-    if (this.keys.has(code) && !this.consumed.has(code)) {
-      this.consumed.add(code);
+    if (this.justPressed.has(code)) {
+      this.justPressed.delete(code);
       return true;
     }
     return false;
   }
 
   endFrame(): void {
-    this.consumed.clear();
+    // key edges are consumed on read — nothing to reset per frame
   }
 }

@@ -443,3 +443,13 @@ export class DebrisPool {
     }
   }
 }
+
+import type { SFX } from '../audio/SFX';
+
+/** shared world-FX bundle handed to NPC / police systems */
+export interface WorldFx {
+  flash: FlashPool;
+  tracers: TracerPool;
+  impacts: ImpactPool;
+  sfx: SFX;
+}
