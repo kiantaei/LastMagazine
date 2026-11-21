@@ -39,7 +39,9 @@ renderer.toneMappingExposure = 0.92;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x020305);
-scene.fog = new THREE.FogExp2(0x020305, 0.022);
+// dense night fog: matches the bodycam look, hides the map edges of the
+// ±178 m open world and culls distant draws
+scene.fog = new THREE.FogExp2(0x020305, 0.0115);
 
 const rig = new CameraRig(window.innerWidth / window.innerHeight);
 scene.add(rig.camera);
@@ -219,7 +221,7 @@ loadAssets((ratio) => hud.setMenuLoading(ratio))
     vehicles = new Vehicles(scene, assets, city.colliders, city.parkingSpots, carHooks);
     shootables.push(...vehicles.hittables);
 
-    civilians = new Civilians(scene, weapon.fx, city.colliders, city.walkPoints, assets, 10, {
+    civilians = new Civilians(scene, weapon.fx, city.colliders, city.walkPoints, assets, 18, {
       onCivKilled: (byCar) => wanted.crime(byCar ? 'civRunOver' : 'civKilled'),
       onCivShot: (killed) => {
         if (!killed) wanted.crime('civShot');
@@ -589,6 +591,15 @@ const TMP_MUZZ = new THREE.Vector3();
   },
   get vm() {
     return vm;
+  },
+  get city() {
+    return city;
+  },
+  get renderer() {
+    return renderer;
+  },
+  get scene() {
+    return scene;
   },
   player,
   rig,

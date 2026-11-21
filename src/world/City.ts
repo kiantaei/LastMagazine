@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { createFire, type Fire } from './Fire';
+import { buildCityLayout, type CityLayout, type ZoneId } from './CityLayout';
 
 export interface Collider {
   min: THREE.Vector3;
   max: THREE.Vector3;
 }
 
-/** Deterministic PRNG so the city layout is identical on every load. */
+/** Deterministic PRNG so textures are identical on every load. */
 function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {
@@ -110,8 +111,8 @@ const metalTex = () =>
     }
   });
 
-/** dark facade with a scatter of faintly lit windows (emissive, no real light) */
-const facadeTex = () =>
+/** facade with a scatter of faintly lit windows (emissive paint, no real light) */
+const facadeTex = (litChance: number, warm = 'rgba(220,190,120,0.85)') =>
   canvasTexture(256, 1, (ctx, s, rnd) => {
     ctx.fillStyle = '#101317';
     ctx.fillRect(0, 0, s, s);
@@ -127,20 +128,13 @@ const facadeTex = () =>
         const w = cw * 0.62;
         const h = rh * 0.5;
         const lit = rnd();
-        if (lit < 0.14) ctx.fillStyle = 'rgba(220,190,120,0.85)'; // warm lit window
-        else if (lit < 0.2) ctx.fillStyle = 'rgba(140,170,210,0.55)'; // cold TV glow
+        if (lit < litChance) ctx.fillStyle = warm; // warm lit window
+        else if (lit < litChance + 0.06) ctx.fillStyle = 'rgba(140,170,210,0.55)'; // cold TV glow
         else ctx.fillStyle = 'rgba(8,9,11,0.95)'; // dark glass
         ctx.fillRect(x, y, w, h);
       }
     }
   });
-
-const ROAD = 16; // road width
-const BLOCK = 36; // building block width
-const PITCH = ROAD + BLOCK; // 52
-/** road centre-line coordinates */
-const ROAD_CENTERS = [-78, -26, 26, 78];
-const HALF = 86; // world half size (perimeter walls)
 
 export interface ParkingSpot {
   pos: THREE.Vector3;
@@ -153,13 +147,23 @@ export interface StorePoint {
   register: THREE.Vector3;
 }
 
+const ZONE_STYLE: Record<ZoneId, { tex: () => THREE.CanvasTexture; color: number; emissive: number; intensity: number; rep: [number, number] }> = {
+  downtown: { tex: () => facadeTex(0.12, 'rgba(190,205,235,0.8)'), color: 0x3d4652, emissive: 0x8ea0c0, intensity: 0.5, rep: [3, 8] },
+  residential: { tex: () => facadeTex(0.14), color: 0x5a616c, emissive: 0x9a8a68, intensity: 0.45, rep: [2, 3] },
+  slum: { tex: () => facadeTex(0.06, 'rgba(255,170,90,0.7)'), color: 0x6a5a4e, emissive: 0x8a5a30, intensity: 0.3, rep: [1, 1] },
+  industrial: { tex: () => metalTex(), color: 0x4e565e, emissive: 0x000000, intensity: 0, rep: [3, 2] },
+};
+
 /**
- * Night city: road grid with sidewalks, dark high-rise blocks, alley fires,
- * dumpsters and perimeter walls. Lit only by the weapon light, muzzle flash
- * and the burning barrels; building windows are emissive paint, not lamps.
+ * Night open world: a 6×6-block road grid spanning ±178 m with downtown
+ * towers, residential mid-rises, slum shanties and industrial warehouses.
+ * Everything repetitive is an InstancedMesh (buildings per zone, sidewalk
+ * slabs, streetlights, trees, trash, dumpsters) — a few dozen draw calls
+ * for the whole city. Dense FogExp2 hides the map edges.
  */
 export class City {
   readonly group = new THREE.Group();
+  readonly layout: CityLayout;
   readonly colliders: Collider[] = [];
   readonly hittables: THREE.Object3D[] = [];
   readonly fires: Fire[] = [];
@@ -169,19 +173,23 @@ export class City {
   readonly storePoints: StorePoint[] = [];
   /** hot-dog cart interaction points */
   readonly cartPoints: THREE.Vector3[] = [];
-  /** sidewalk waypoints for civilian wandering */
+  /** sidewalk + alley waypoints for civilian wandering */
   readonly walkPoints: THREE.Vector3[] = [];
   /** roadside points for police spawns */
   readonly roadSpawnPoints: THREE.Vector3[] = [];
   readonly playerStart = new THREE.Vector3(27, 0, 21);
 
   constructor() {
+    this.layout = buildCityLayout();
     this.buildSky();
     this.buildGround();
     this.buildRoads();
-    this.buildBlocks();
+    this.buildSidewalks();
+    this.buildBuildings();
     this.buildPerimeter();
-    this.buildFiresAndProps();
+    this.buildStreetlights();
+    this.buildProps();
+    this.buildFiresAndKiosks();
     this.buildPoints();
   }
 
@@ -232,9 +240,8 @@ export class City {
   }
 
   private buildGround(): void {
-    // one dark plane under everything; roads/sidewalks sit on top
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(HALF * 2, HALF * 2),
+      new THREE.PlaneGeometry(this.layout.half * 2, this.layout.half * 2),
       new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.96, metalness: 0.04 }),
     );
     ground.rotation.x = -Math.PI / 2;
@@ -245,189 +252,119 @@ export class City {
   }
 
   private buildRoads(): void {
-    const tex = asphaltTex(2, true);
+    const tex = asphaltTex(4, true);
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92, metalness: 0.06 });
-    for (const c of ROAD_CENTERS) {
-      // N-S road strip
-      const ns = new THREE.Mesh(new THREE.PlaneGeometry(ROAD, HALF * 2), mat);
+    for (const c of this.layout.roadCenters) {
+      // N-S strip (slightly raised; E-W sits a hair above to avoid z-fighting)
+      const ns = new THREE.Mesh(new THREE.PlaneGeometry(this.layout.road, this.layout.half * 2), mat);
       ns.rotation.x = -Math.PI / 2;
-      ns.position.set(c, 0, 0);
+      ns.position.set(c, 0.01, 0);
       ns.receiveShadow = true;
       this.group.add(ns);
       this.hittables.push(ns);
-      // E-W road strip
-      const ew = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, ROAD), mat);
+      const ew = new THREE.Mesh(new THREE.PlaneGeometry(this.layout.half * 2, this.layout.road), mat);
       ew.rotation.x = -Math.PI / 2;
-      ew.position.set(0, 0, c);
+      ew.position.set(0, 0.03, c);
       ew.receiveShadow = true;
       this.group.add(ew);
       this.hittables.push(ew);
     }
   }
 
-  // ------------------------------------------------------------------ blocks
-  private buildBlocks(): void {
-    const sidewalkMat = new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.94, metalness: 0.04 });
-    const facade = facadeTex();
-    const concrete = new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.9 });
-    const metal = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.55, metalness: 0.6 });
-    const rnd = mulberry32(0x9e3779b9);
+  private buildSidewalks(): void {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mat = new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.94, metalness: 0.04 });
+    const slabs = this.layout.slabs;
+    const mesh = new THREE.InstancedMesh(geo, mat, slabs.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    slabs.forEach((s, i) => {
+      m.compose(new THREE.Vector3(s.x, 0.06, s.z), q, new THREE.Vector3(s.w, 0.12, s.d));
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+  }
 
-    const blockCenters = [-52, 0, 52];
-    for (const bx of blockCenters) {
-      for (const bz of blockCenters) {
-        // sidewalk slab ring around the block (2m wide, 0.12m high)
-        const sw = 2;
-        const inner = BLOCK - sw * 2;
-        const slabs: Array<[number, number, number, number]> = [
-          [bx, bz - inner / 2 - sw / 2, BLOCK, sw],
-          [bx, bz + inner / 2 + sw / 2, BLOCK, sw],
-          [bx - inner / 2 - sw / 2, bz, sw, inner],
-          [bx + inner / 2 + sw / 2, bz, sw, inner],
-        ];
-        for (const [x, z, w, d] of slabs) {
-          const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.12, d), sidewalkMat);
-          m.position.set(x, 0.06, z);
-          m.receiveShadow = true;
-          this.group.add(m);
-          this.walkPoints.push(new THREE.Vector3(x, 0, z));
-        }
-        // corner walk points too
-        for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-          this.walkPoints.push(
-            new THREE.Vector3(bx + dx * (BLOCK / 2 - sw / 2), 0, bz + dz * (BLOCK / 2 - sw / 2)),
-          );
-        }
+  private buildBuildings(): void {
+    const unit = new THREE.BoxGeometry(1, 1, 1);
+    const byZone = new Map<ZoneId, THREE.InstancedMesh>();
+    const zones: ZoneId[] = ['downtown', 'residential', 'slum', 'industrial'];
+    for (const zone of zones) {
+      const st = ZONE_STYLE[zone];
+      const tex = st.tex();
+      tex.repeat.set(st.rep[0], st.rep[1]);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex,
+        emissiveMap: st.intensity > 0 ? tex : undefined,
+        emissive: new THREE.Color(st.emissive),
+        emissiveIntensity: st.intensity,
+        roughness: 0.88,
+        metalness: zone === 'industrial' ? 0.4 : 0.08,
+        color: st.color,
+      });
+      const count = this.layout.buildings.filter((b) => b.zone === zone).length;
+      const mesh = new THREE.InstancedMesh(unit, mat, count);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.zone = zone;
+      byZone.set(zone, mesh);
+      this.group.add(mesh);
+      this.hittables.push(mesh);
+    }
 
-        // buildings: 1-2 towers per block, always inside the sidewalk ring
-        const towerCount = rnd() < 0.55 ? 2 : 1;
-        for (let t = 0; t < towerCount; t++) {
-          const w = 10 + rnd() * 6;
-          const d = 10 + rnd() * 6;
-          const h = 9 + rnd() * 14;
-          // footprint + half-size must stay inside the 32m inner block
-          const px = towerCount === 1 ? bx + (rnd() - 0.5) * 6 : bx + (t === 0 ? -7.5 : 7.5);
-          const pz = towerCount === 1 ? bz + (rnd() - 0.5) * 6 : bz + (rnd() - 0.5) * 10;
-          const facadeMat = new THREE.MeshStandardMaterial({
-            map: facade.clone(),
-            emissiveMap: facade.clone(),
-            emissive: new THREE.Color(0x9a8a68),
-            emissiveIntensity: 0.5,
-            roughness: 0.88,
-            metalness: 0.08,
-            color: 0x5a616c,
-          });
-          (facadeMat.map as THREE.Texture).repeat.set(Math.max(1, Math.round(w / 8)), Math.max(1, Math.round(h / 7)));
-          (facadeMat.emissiveMap as THREE.Texture).repeat.set(Math.max(1, Math.round(w / 8)), Math.max(1, Math.round(h / 7)));
-          const roofMat = rnd() < 0.5 ? concrete : metal;
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [facadeMat, facadeMat, roofMat, roofMat, facadeMat, facadeMat]);
-          mesh.position.set(px, h / 2 + 0.12, pz);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          this.group.add(mesh);
-          this.hittables.push(mesh);
-          const half = new THREE.Vector3(w / 2, h / 2, d / 2);
-          this.colliders.push({
-            min: new THREE.Vector3(px - half.x, 0.12, pz - half.z),
-            max: new THREE.Vector3(px + half.x, h + 0.12, pz + half.z),
-          });
-        }
-
-        // roadside parking: 2 spots per block edge facing the road
-        const edge = BLOCK / 2 + ROAD / 2 - 2.2;
-        this.parkingSpots.push({ pos: new THREE.Vector3(bx - 8, 0, bz + edge), yaw: 0 });
-        this.parkingSpots.push({ pos: new THREE.Vector3(bx + 8, 0, bz + edge), yaw: 0 });
-        this.parkingSpots.push({ pos: new THREE.Vector3(bx + edge, 0, bz - 8), yaw: Math.PI / 2 });
-        this.parkingSpots.push({ pos: new THREE.Vector3(bx + edge, 0, bz + 8), yaw: Math.PI / 2 });
-      }
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const idx: Record<ZoneId, number> = { downtown: 0, residential: 0, slum: 0, industrial: 0 };
+    for (const b of this.layout.buildings) {
+      const mesh = byZone.get(b.zone) as THREE.InstancedMesh;
+      m.compose(
+        new THREE.Vector3(b.x, b.h / 2 + 0.12, b.z),
+        q,
+        new THREE.Vector3(b.w, b.h, b.d),
+      );
+      mesh.setMatrixAt(idx[b.zone]++, m);
+      this.colliders.push({
+        min: new THREE.Vector3(b.x - b.w / 2, 0.12, b.z - b.d / 2),
+        max: new THREE.Vector3(b.x + b.w / 2, b.h + 0.12, b.z + b.d / 2),
+      });
     }
   }
 
   private buildPerimeter(): void {
     const wallMat = new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.9, metalness: 0.05 });
+    const h = this.layout.half;
     const walls: Array<[number, number, number, number, number, number]> = [
-      [0, 5, -HALF, HALF * 2, 10, 1.4],
-      [0, 5, HALF, HALF * 2, 10, 1.4],
-      [-HALF, 5, 0, 1.4, 10, HALF * 2],
-      [HALF, 5, 0, 1.4, 10, HALF * 2],
+      [0, 5, -h, h * 2, 10, 1.4],
+      [0, 5, h, h * 2, 10, 1.4],
+      [-h, 5, 0, 1.4, 10, h * 2],
+      [h, 5, 0, 1.4, 10, h * 2],
     ];
-    for (const [x, y, z, w, h, d] of walls) {
-      this.addBox(wallMat, w, h, d, new THREE.Vector3(x, y, z));
-    }
-  }
-
-  private buildFiresAndProps(): void {
-    this.buildStreetlights();
-    this.buildKiosksAndCarts();
-
-    const fireBarrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.95, 14);
-    const fireBarrelMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.7, metalness: 0.4, color: 0x4a4440 });
-    const metal = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.55, metalness: 0.6 });
-    const spots: Array<[number, number]> = [
-      [-14, 15],
-      [16, -13],
-      [-40, -40],
-      [44, 38],
-      [-58, 44],
-      [58, -60],
-    ];
-    for (let i = 0; i < spots.length; i++) {
-      const [x, z] = spots[i];
-      const { object, fire } = createFire(fireBarrelGeo, fireBarrelMat, x, z, i * 13.7 + 5);
-      this.group.add(object);
-      this.fires.push(fire);
-      this.firePositions.push(new THREE.Vector3(x, 1.4, z));
-      const drum = object.children[0] as THREE.Mesh;
-      this.hittables.push(drum);
-      this.colliders.push({
-        min: new THREE.Vector3(x - 0.46, 0, z - 0.46),
-        max: new THREE.Vector3(x + 0.46, 1.1, z + 0.46),
-      });
-    }
-
-    // dumpsters (alley cover)
-    for (const [x, z, ry] of [
-      [-20, -18, 0.2],
-      [12, 26, -0.15],
-      [-64, 8, Math.PI / 2],
-      [40, 56, 0.1],
-      [66, 24, -0.1],
-    ] as const) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.3, 1.3), metal);
-      m.position.set(x, 0.65, z);
-      m.rotation.y = ry;
-      m.castShadow = m.receiveShadow = true;
-      this.group.add(m);
-      this.hittables.push(m);
-      const wide = Math.abs(ry) < 0.5;
-      this.colliders.push({
-        min: new THREE.Vector3(x - (wide ? 1.25 : 0.7), 0, z - (wide ? 0.7 : 1.25)),
-        max: new THREE.Vector3(x + (wide ? 1.25 : 0.7), 1.3, z + (wide ? 0.7 : 1.25)),
-      });
+    for (const [x, y, z, w, hh, d] of walls) {
+      this.addBox(wallMat, w, hh, d, new THREE.Vector3(x, y, z));
     }
   }
 
   private buildPoints(): void {
-    // police spawn points: on the outer roads, away from the centre
-    for (const c of ROAD_CENTERS) {
-      this.roadSpawnPoints.push(new THREE.Vector3(c, 0, -70));
-      this.roadSpawnPoints.push(new THREE.Vector3(c, 0, 70));
-      this.roadSpawnPoints.push(new THREE.Vector3(-70, 0, c));
-      this.roadSpawnPoints.push(new THREE.Vector3(70, 0, c));
+    for (const p of this.layout.roadSpawns) this.roadSpawnPoints.push(p);
+    for (const s of this.layout.parkingSpots) {
+      this.parkingSpots.push({ pos: new THREE.Vector3(s.x, 0, s.z), yaw: s.yaw });
     }
+    // walk points already carry sidewalk + alley positions from the layout
+    for (const p of this.layout.walkPoints) this.walkPoints.push(p);
   }
 
   // ---------------------------------------------------- street furniture
   /**
-   * Streetlight poles along every road (instanced). The heads are emissive
-   * paint only — they read as sodium lamps in the dark without adding a
-   * single real light, keeping the flashlight/muzzle-flash look.
+   * Streetlight poles along every road (instanced). Emissive heads only —
+   * sodium-lamp look without a single real light.
    */
   private buildStreetlights(): void {
     const positions: THREE.Vector3[] = [];
-    for (const c of ROAD_CENTERS) {
-      for (let t = -65; t <= 65; t += 26) {
-        const side = ((t / 26) % 2 === 0 ? 1 : -1) * (ROAD / 2 - 1.2);
+    for (const c of this.layout.roadCenters) {
+      let i = 0;
+      for (let t = -166; t <= 166; t += 26, i++) {
+        const side = (i % 2 === 0 ? 1 : -1) * (this.layout.road / 2 - 1.2);
         positions.push(new THREE.Vector3(c + side, 0, t)); // N-S road
         positions.push(new THREE.Vector3(t, 0, c + side)); // E-W road
       }
@@ -455,6 +392,111 @@ export class City {
     poles.castShadow = false;
     heads.castShadow = false;
     this.group.add(poles, heads);
+  }
+
+  /** trees (instanced trunk + canopy), trash cans, dumpsters */
+  private buildProps(): void {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    const quatFromYaw = (yaw: number) => q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+    // --- trees
+    const trees = this.layout.trees;
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x2e2620, roughness: 0.95 });
+    const canopyMat = new THREE.MeshStandardMaterial({ color: 0x1d2b1c, roughness: 1 });
+    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 7), trunkMat, trees.length);
+    const canopies = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.5, 0), canopyMat, trees.length);
+    trees.forEach((t, i) => {
+      m.compose(new THREE.Vector3(t.x, 1.3, t.z), q, one);
+      trunks.setMatrixAt(i, m);
+      const s = 0.9 + ((i * 37) % 10) / 22;
+      m.compose(new THREE.Vector3(t.x, 3.1 + s * 0.5, t.z), quatFromYaw(i * 1.3), new THREE.Vector3(s, s * 1.25, s));
+      canopies.setMatrixAt(i, m);
+      this.colliders.push({
+        min: new THREE.Vector3(t.x - 0.28, 0, t.z - 0.28),
+        max: new THREE.Vector3(t.x + 0.28, 2.6, t.z + 0.28),
+      });
+    });
+    trunks.castShadow = canopies.castShadow = true;
+    this.group.add(trunks, canopies);
+
+    // --- trash cans
+    const trash = this.layout.trashCans;
+    const trashMat = new THREE.MeshStandardMaterial({ color: 0x2c3136, roughness: 0.8, metalness: 0.3 });
+    const cans = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.32, 0.36, 0.85, 9), trashMat, trash.length);
+    trash.forEach((t, i) => {
+      m.compose(new THREE.Vector3(t.x, 0.43, t.z), q, one);
+      cans.setMatrixAt(i, m);
+      this.colliders.push({
+        min: new THREE.Vector3(t.x - 0.38, 0, t.z - 0.38),
+        max: new THREE.Vector3(t.x + 0.38, 0.88, t.z + 0.38),
+      });
+    });
+    cans.castShadow = true;
+    this.group.add(cans);
+
+    // --- dumpsters (alley cover)
+    const dumps = this.layout.dumpsters;
+    const dumpMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.55, metalness: 0.6 });
+    const meshes = new THREE.InstancedMesh(new THREE.BoxGeometry(2.4, 1.3, 1.3), dumpMat, dumps.length);
+    dumps.forEach((d, i) => {
+      m.compose(new THREE.Vector3(d.x, 0.65, d.z), quatFromYaw(d.yaw), one);
+      meshes.setMatrixAt(i, m);
+      // world-space AABB of the rotated footprint
+      const c = Math.abs(Math.cos(d.yaw));
+      const s = Math.abs(Math.sin(d.yaw));
+      const hx = c * 1.25 + s * 0.7;
+      const hz = s * 1.25 + c * 0.7;
+      this.colliders.push({
+        min: new THREE.Vector3(d.x - hx, 0, d.z - hz),
+        max: new THREE.Vector3(d.x + hx, 1.3, d.z + hz),
+      });
+    });
+    meshes.castShadow = meshes.receiveShadow = true;
+    this.group.add(meshes);
+  }
+
+  private buildFiresAndKiosks(): void {
+    const fireBarrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.95, 14);
+    const fireBarrelMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.7, metalness: 0.4, color: 0x4a4440 });
+    this.layout.fires.forEach((f, i) => {
+      const { object, fire } = createFire(fireBarrelGeo, fireBarrelMat, f.x, f.z, i * 13.7 + 5);
+      this.group.add(object);
+      this.fires.push(fire);
+      this.firePositions.push(new THREE.Vector3(f.x, 1.4, f.z));
+      const drum = object.children[0] as THREE.Mesh;
+      this.hittables.push(drum);
+      this.colliders.push({
+        min: new THREE.Vector3(f.x - 0.46, 0, f.z - 0.46),
+        max: new THREE.Vector3(f.x + 0.46, 1.1, f.z + 0.46),
+      });
+    });
+
+    for (const k of this.layout.kiosks) {
+      const register = this.addKiosk(new THREE.Vector3(k.x, 0, k.z), k.name, k.color);
+      this.storePoints.push({ name: k.name, register });
+    }
+
+    const cartMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.6, metalness: 0.45, color: 0x8a4a2a });
+    for (const c of this.layout.carts) {
+      const cart = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.05, 0.95), cartMat);
+      cart.position.set(c.x, 0.72, c.z);
+      cart.castShadow = cart.receiveShadow = true;
+      this.group.add(cart);
+      this.hittables.push(cart);
+      this.colliders.push({
+        min: new THREE.Vector3(c.x - 0.85, 0, c.z - 0.5),
+        max: new THREE.Vector3(c.x + 0.85, 1.24, c.z + 0.5),
+      });
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.5, 0.5),
+        new THREE.MeshBasicMaterial({ map: this.signTex('HOT DOG $5', '#ffae4a') }),
+      );
+      sign.position.set(c.x, 1.85, c.z + 0.48);
+      this.group.add(sign);
+      this.cartPoints.push(new THREE.Vector3(c.x, 0, c.z + 1.8));
+    }
   }
 
   /** glowing sign texture (self-lit, no real light) */
@@ -503,39 +545,6 @@ export class City {
 
     // register interaction point in front of the sign
     return new THREE.Vector3(pos.x + Math.sin(yaw) * 2.2, 0, pos.z + Math.cos(yaw) * 2.2);
-  }
-
-  private buildKiosksAndCarts(): void {
-    // 24/7 market kiosks — rob their registers
-    this.storePoints.push(
-      { name: 'MARKET', register: this.addKiosk(new THREE.Vector3(-17, 0, -17), '24/7 MARKET', '#ffd257') },
-      { name: 'LIQUOR', register: this.addKiosk(new THREE.Vector3(69, 0, 17), 'LIQUOR 24/7', '#7dff9a') },
-      { name: 'PAWN', register: this.addKiosk(new THREE.Vector3(-69, 0, 69), 'PAWN SHOP', '#ff8a5c') },
-    );
-
-    // hot-dog carts — the cheap way to stave off hunger
-    const cartMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.6, metalness: 0.45, color: 0x8a4a2a });
-    for (const [x, z] of [
-      [17, 17],
-      [17, -17],
-    ] as const) {
-      const cart = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.05, 0.95), cartMat);
-      cart.position.set(x, 0.72, z);
-      cart.castShadow = cart.receiveShadow = true;
-      this.group.add(cart);
-      this.hittables.push(cart);
-      this.colliders.push({
-        min: new THREE.Vector3(x - 0.85, 0, z - 0.5),
-        max: new THREE.Vector3(x + 0.85, 1.24, z + 0.5),
-      });
-      const sign = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.5, 0.5),
-        new THREE.MeshBasicMaterial({ map: this.signTex('HOT DOG $5', '#ffae4a') }),
-      );
-      sign.position.set(x, 1.85, z + 0.48);
-      this.group.add(sign);
-      this.cartPoints.push(new THREE.Vector3(x, 0, z + 1.8));
-    }
   }
 
   private addBox(

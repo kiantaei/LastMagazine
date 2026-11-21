@@ -158,11 +158,24 @@ spawn — no extra downloads:
 
 ### Open-world night city
 
-A 3×3-block grid (~170 m square) of dark high-rise blocks with sidewalks, a
-road network with lane markings, alley fires, dumpsters and perimeter walls.
-Building windows are emissive paint (a few warm lit windows, a few cold TV
-glows) — they never cast light. Building collisions are plain AABBs, as are
-every actor's movement bounds.
+A large 6×6-block grid spanning ±178 m (7 roads per axis, wide 4 m
+sidewalks, alley gaps between buildings) with four distinct zones:
+
+- **Downtown** (centre) — 26–56 m glass towers with cool lit windows.
+- **Residential** (everywhere else) — mid-rises on the diagonal with an
+  alley down the middle of every block.
+- **Slum** (far NW) — four shanties per block, dim warm windows, alleys.
+- **Industrial** (far SE) — long corrugated warehouses and container yards.
+
+Map shape lives in `src/world/CityLayout.ts` (pure data: zones, building
+plots, sidewalk slabs, walk/parking/prop placements); `src/world/City.ts`
+only turns that data into meshes. Everything repetitive is an
+`InstancedMesh` — buildings per zone, sidewalk slabs, streetlights, trees,
+trash cans, dumpsters — the whole city renders in **under 100 draw calls**.
+Dense `FogExp2` matches the bodycam look and hides the map edges.
+18 civilians wander 324 sidewalk/alley points; 14 stealable cars sit in the
+144-spot parking network; 5 robbable registers, 4 hot-dog carts and 8 alley
+fires are spread across all four districts.
 
 ### Vehicles
 
