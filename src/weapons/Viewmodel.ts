@@ -1,13 +1,15 @@
 import * as THREE from 'three';
+import { normalizeGun, type Assets, type NormalizedModel } from '../core/Assets';
 
 export const RELOAD_TIME = 1.7;
-const SIGHT_Y = 0.09; // sight axis above gun origin — ADS anchors this to screen center
 
-const HIP_POS = new THREE.Vector3(0.22, -0.235, -0.44);
+const HIP_POS = new THREE.Vector3(0.22, -0.24, -0.48);
 const HIP_ROT = { x: 0, y: 0.04, z: 0.015 };
-const ADS_POS = new THREE.Vector3(0, -SIGHT_Y, -0.27);
-const SPRINT_POS = new THREE.Vector3(0.1, -0.26, -0.38);
+const ADS_POS = new THREE.Vector3(0, -0.052, -0.32);
+const SPRINT_POS = new THREE.Vector3(0.1, -0.26, -0.4);
 const SPRINT_ROT = { x: 0.42, y: 0.42, z: 0.12 };
+
+const SMG_LENGTH = 0.62;
 
 export interface VMContext {
   dt: number;
@@ -26,14 +28,17 @@ function smoothstep(x: number): number {
 }
 
 /**
- * First-person weapon model with the full bodycam feel:
+ * First-person weapon: a real GLTF SMG with the full bodycam feel —
  * mouse-lag sway, walk bob, breathing, recoil springs, sprint pose and a
- * keyframed magazine reload (drop, grab, slap, bolt release).
+ * keyframed magazine reload that pulls the actual magazine node out of the
+ * gun, drops it as a world prop and seats a fresh one.
  */
 export class Viewmodel {
   readonly group = new THREE.Group();
-  readonly magMesh: THREE.Mesh;
-  readonly boltHandle: THREE.Mesh;
+  private gunWrap: NormalizedModel;
+  private heldMag: THREE.Object3D;
+  private magRestPos = new THREE.Vector3();
+  private magRestQuat = new THREE.Quaternion();
   private muzzleRef = new THREE.Object3D();
 
   private time = 0;
@@ -48,88 +53,57 @@ export class Viewmodel {
   private sprintBlend = 0;
   private reloadT = -1;
 
-  private magRestY: number;
-  private boltRestZ: number;
+  constructor(assets: Assets) {
+    // --- real SMG, normalized to barrel -z, centered, 0.62m ---------------
+    const smg = assets.smg.scene;
+    this.gunWrap = normalizeGun(smg, SMG_LENGTH);
+    this.group.add(this.gunWrap.group);
 
-  constructor() {
-    const gunmetal = new THREE.MeshStandardMaterial({
-      color: 0x2f353d,
-      metalness: 0.8,
-      roughness: 0.36,
-    });
-    const polymer = new THREE.MeshStandardMaterial({
-      color: 0x24282e,
-      metalness: 0.15,
-      roughness: 0.72,
-    });
-    const dark = new THREE.MeshStandardMaterial({
-      color: 0x101215,
-      metalness: 0.6,
-      roughness: 0.5,
-    });
+    // pull the magazine out of the model into gun-wrapper space
+    const magNode = assets.smg.magNode;
+    if (magNode) {
+      this.gunWrap.group.updateMatrixWorld(true);
+      const rel = new THREE.Matrix4()
+        .copy(this.gunWrap.group.matrixWorld)
+        .invert()
+        .multiply(magNode.matrixWorld);
+      rel.decompose(this.magRestPos, this.magRestQuat, new THREE.Vector3());
+      const held = magNode.clone(true);
+      held.position.copy(this.magRestPos);
+      held.quaternion.copy(this.magRestQuat);
+      held.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.frustumCulled = false;
+          mesh.castShadow = false;
+        }
+      });
+      this.gunWrap.group.add(held);
+      this.heldMag = held;
+      magNode.visible = false; // the held clone is the gun's magazine now
+    } else {
+      this.heldMag = new THREE.Group();
+    }
 
-    const add = (
-      geo: THREE.BufferGeometry,
-      mat: THREE.MeshStandardMaterial,
-      x: number,
-      y: number,
-      z: number,
-    ): THREE.Mesh => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.castShadow = false;
-      m.receiveShadow = false;
-      this.group.add(m);
-      return m;
-    };
-
-    add(new THREE.BoxGeometry(0.062, 0.11, 0.3), gunmetal, 0, 0, -0.02);          // receiver
-    add(new THREE.BoxGeometry(0.055, 0.075, 0.16), polymer, 0, 0.005, -0.24);     // handguard
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.2, 10), gunmetal);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.4);
-    this.group.add(barrel);
-    add(new THREE.BoxGeometry(0.045, 0.11, 0.05), polymer, 0, -0.095, 0.09);      // grip
-    (this.group.children[this.group.children.length - 1] as THREE.Mesh).rotation.x = -0.3;
-    add(new THREE.BoxGeometry(0.05, 0.065, 0.15), polymer, 0, 0.005, 0.17);       // stock
-
-    // magazine (animated during reload)
-    this.magMesh = add(new THREE.BoxGeometry(0.048, 0.16, 0.08), dark, 0, -0.13, -0.03);
-    this.magMesh.rotation.x = 0.1;
-    this.magRestY = this.magMesh.position.y;
-
-    // charging handle (pulled during reload)
-    this.boltHandle = add(new THREE.BoxGeometry(0.02, 0.018, 0.055), gunmetal, 0.042, 0.03, 0.02);
-    this.boltRestZ = this.boltHandle.position.z;
-
-    // iron sights
-    add(new THREE.BoxGeometry(0.008, 0.035, 0.012), dark, 0, 0.0725, -0.3);       // front post
-    add(new THREE.BoxGeometry(0.022, 0.01, 0.012), dark, 0, 0.06, -0.3);
-    add(new THREE.BoxGeometry(0.008, 0.035, 0.012), dark, -0.011, 0.0725, 0.03);  // rear notch
-    add(new THREE.BoxGeometry(0.008, 0.035, 0.012), dark, 0.011, 0.0725, 0.03);
-    add(new THREE.BoxGeometry(0.03, 0.01, 0.012), dark, 0, 0.06, 0.03);
-
-    // weapon light — the bodycam's best friend in a dark yard
-    add(new THREE.BoxGeometry(0.03, 0.03, 0.08), dark, 0.038, -0.035, -0.2);
+    // --- lights -------------------------------------------------------------
     const torch = new THREE.SpotLight(0xffedd0, 420, 38, 0.46, 0.6, 2);
-    torch.position.set(0.038, -0.03, -0.24);
+    torch.position.set(0.05, -0.04, -0.2);
     torch.castShadow = true;
     torch.shadow.mapSize.set(1024, 1024);
     torch.shadow.camera.near = 0.2;
     torch.shadow.camera.far = 38;
     torch.shadow.bias = -0.002;
     const torchTarget = new THREE.Object3D();
-    torchTarget.position.set(0.038, -0.04, -14);
+    torchTarget.position.set(0.05, -0.05, -14);
     this.group.add(torchTarget);
     torch.target = torchTarget;
     this.group.add(torch);
 
-    // soft fill so the weapon stays readable against the night
     const fill = new THREE.PointLight(0xd8dce4, 2.2, 1.6, 2);
-    fill.position.set(0.12, 0.1, -0.15);
+    fill.position.set(0.14, 0.12, -0.12);
     this.group.add(fill);
 
-    this.muzzleRef.position.set(0, 0.02, -0.5);
+    this.muzzleRef.position.set(0, 0.02, -(SMG_LENGTH / 2) - 0.04);
     this.group.add(this.muzzleRef);
   }
 
@@ -153,7 +127,24 @@ export class Viewmodel {
   }
 
   getMagWorldPos(out: THREE.Vector3): THREE.Vector3 {
-    return this.magMesh.getWorldPosition(out);
+    return this.heldMag.getWorldPosition(out);
+  }
+
+  /** fresh world-space magazine prop for the dropped-mag debris pool */
+  makeMagPropMesh(): THREE.Mesh {
+    const meshes: THREE.Mesh[] = [];
+    this.heldMag.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) meshes.push(m);
+    });
+    const first = meshes[0];
+    if (!first) {
+      return new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.17, 0.06),
+        new THREE.MeshStandardMaterial({ color: 0x101215, metalness: 0.6, roughness: 0.5 }),
+      );
+    }
+    return new THREE.Mesh(first.geometry, (first.material as THREE.Material).clone());
   }
 
   update(c: VMContext): void {
@@ -200,12 +191,11 @@ export class Viewmodel {
     ry += (SPRINT_ROT.y - ry) * s;
     rz += (SPRINT_ROT.z - rz) * s;
 
-    // reload pose
+    // reload pose + magazine animation
     let w = 0;
-    let magY = 0;
-    let magRx = 0;
+    let magDrop = 0;   // 0 = seated, 1 = fully dropped
     let magVisible = true;
-    let boltPull = 0;
+    let boltJolt = 0;
     if (this.reloadT >= 0) {
       const t = this.reloadT;
       w = smoothstep(t / 0.28) * (1 - smoothstep((t - 1.45) / 0.25));
@@ -217,18 +207,15 @@ export class Viewmodel {
       rz += -0.5 * w;
 
       if (t > 0.5 && t < 1.12) {
-        const drop = smoothstep((t - 0.5) / 0.22);
-        magY = -0.2 * drop;
-        magRx = -0.55 * drop;
-        magVisible = drop < 0.98;
+        magDrop = smoothstep((t - 0.5) / 0.22);
+        magVisible = magDrop < 0.98;
       } else if (t >= 1.12 && t < 1.5) {
         const rise = smoothstep((t - 1.12) / 0.3);
-        magY = -0.2 * (1 - rise);
-        magRx = -0.55 * (1 - rise);
+        magDrop = 1 - rise;
         magVisible = true;
       }
       if (t >= 1.45 && t < 1.62) {
-        boltPull = Math.sin(((t - 1.45) / 0.17) * Math.PI);
+        boltJolt = Math.sin(((t - 1.45) / 0.17) * Math.PI) * 0.06;
       }
     }
 
@@ -238,14 +225,22 @@ export class Viewmodel {
       pz + this.recZ,
     );
     this.group.rotation.set(
-      rx - this.recP * 0.1 + this.lagY * 3.4,
+      rx - this.recP * 0.1 + this.lagY * 3.4 + boltJolt,
       ry + this.lagX * 3.4,
       rz + Math.cos(this.bobT) * 0.02 * intensity,
     );
 
-    this.magMesh.visible = magVisible;
-    this.magMesh.position.y = this.magRestY + magY;
-    this.magMesh.rotation.x = 0.1 + magRx;
-    this.boltHandle.position.z = this.boltRestZ + boltPull * 0.055;
+    // magazine rides out of the well, tilts, drops, then seats again
+    this.heldMag.visible = magVisible;
+    this.heldMag.position.copy(this.magRestPos);
+    this.heldMag.position.y -= magDrop * 0.22;
+    this.heldMag.quaternion.copy(this.magRestQuat);
+    if (magDrop > 0) {
+      const tiltQ = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        -magDrop * 0.5,
+      );
+      this.heldMag.quaternion.multiply(tiltQ);
+    }
   }
 }
