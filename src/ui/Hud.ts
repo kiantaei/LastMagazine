@@ -24,6 +24,8 @@ export class Hud {
   private reloadBar = $('hud-reload-bar');
   private reloadFill = $('hud-reload-fill');
   private damageOverlay = $('damage-overlay');
+  private torchEl = $('hud-torch');
+  private battEl = $('hud-batt');
   private menuEl = $('menu');
   private pauseEl = $('pause');
   private deathEl = $('death');
@@ -35,6 +37,9 @@ export class Hud {
   private bannerTimer = 0;
   private feedTimer = 0;
   private dmgOpacity = 0;
+  private recGlitchT = 0;
+  private batt = 100;
+  private battAcc = 0;
 
   constructor() {
     this.hudRoot.classList.add('hidden');
@@ -57,6 +62,17 @@ export class Hud {
 
   setKills(kills: number): void {
     this.killsEl.textContent = `KILLS ${kills}`;
+  }
+
+  setTorch(on: boolean): void {
+    this.torchEl.textContent = on ? 'TORCH ON' : 'TORCH OFF';
+    this.torchEl.classList.toggle('off', !on);
+  }
+
+  /** brief REC chrome flicker synced with the visual glitch pass */
+  recGlitch(): void {
+    this.recGlitchT = 0.35;
+    this.hudRoot.classList.add('rec-glitch');
   }
 
   hitmarker(killed: boolean): void {
@@ -129,6 +145,20 @@ export class Hud {
 
     this.dmgOpacity = Math.max(0, this.dmgOpacity - dt * 1.7);
     this.damageOverlay.style.opacity = this.dmgOpacity.toFixed(3);
+
+    // bodycam battery drains slowly while recording
+    this.battAcc += dt;
+    if (this.battAcc >= 9 && this.batt > 18) {
+      this.batt--;
+      this.battAcc = 0;
+      this.battEl.textContent = `BATT ${this.batt}%`;
+      this.battEl.classList.toggle('low', this.batt < 30);
+    }
+
+    if (this.recGlitchT > 0) {
+      this.recGlitchT -= dt;
+      if (this.recGlitchT <= 0) this.hudRoot.classList.remove('rec-glitch');
+    }
   }
 
   private setTimestamp(): void {

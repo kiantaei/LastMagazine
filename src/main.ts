@@ -29,11 +29,11 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 0.92;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070a);
-scene.fog = new THREE.FogExp2(0x05070a, 0.03);
+scene.background = new THREE.Color(0x020305);
+scene.fog = new THREE.FogExp2(0x020305, 0.024);
 
 const rig = new CameraRig(window.innerWidth / window.innerHeight);
 scene.add(rig.camera);
@@ -136,6 +136,10 @@ function startRun(): void {
   rig.reset(0, 0); // playerStart faces the yard center
   damagePulse = 0;
   ambienceT = 6;
+  glitchSpike = 0.6; // boot burst
+  sfx.recStart(); // bodycam starts recording
+  hud.recGlitch();
+  hud.setTorch(vm?.getTorchOn() ?? true);
   hud.setAmmo(w.mag, w.reserve);
   hud.setKills(0);
   hud.setWave(1);
@@ -144,6 +148,7 @@ function startRun(): void {
 input.onLockChanged = (locked) => {
   if (locked) {
     sfx.start(); // AudioContext unlocks on the click gesture
+    sfx.startFireLoops(map.firePositions); // burning barrels crackle
     if (phase === 'menu' || phase === 'dead') startRun();
     phase = 'playing';
     hud.hideAll();
@@ -176,6 +181,8 @@ if ('ontouchstart' in window && window.innerWidth < 900) {
 let lastT = performance.now();
 const playerEye = new THREE.Vector3();
 let ambienceT = 6;
+let glitchSpike = 0;
+let dropoutT = 5 + Math.random() * 9;
 
 const state: RigState = {
   pos: player.pos,
@@ -210,6 +217,16 @@ renderer.setAnimationLoop(() => {
       lookDY: ly,
     });
 
+    // F toggles the weapon light — the only light we own
+    if (input.wasPressed('KeyF') && vm) {
+      const on = vm.toggleTorch();
+      sfx.torchClick();
+      hud.setTorch(on);
+    }
+
+    // burning barrels flicker
+    for (const fire of map.fires) fire.update(dt);
+
     if (!player.dead) {
       playerEye.set(player.pos.x, player.pos.y + player.eyeHeight, player.pos.z);
       enemies.update(dt, {
@@ -221,6 +238,8 @@ renderer.setAnimationLoop(() => {
     } else {
       phase = 'dead';
       input.releaseLock();
+      sfx.staticBurst(); // feed dies with the camera
+      glitchSpike = 1;
       hud.showDeath(enemies.kills, enemies.wave);
     }
 
@@ -253,7 +272,16 @@ renderer.setAnimationLoop(() => {
     reloadProgress: weapon?.reloadProgress ?? 0,
     health: player.health,
   });
-  postfx.update(dt, damagePulse, lowHp);
+
+  // bodycam glitch budget: damage, random telecom dropouts, death
+  dropoutT -= dt;
+  if (dropoutT <= 0 && phase === 'playing') {
+    glitchSpike = Math.max(glitchSpike, 0.4 + Math.random() * 0.3);
+    dropoutT = 6 + Math.random() * 10;
+  }
+  glitchSpike = Math.max(0, glitchSpike - dt * 2.4);
+  const glitch = Math.min(1, glitchSpike + damagePulse * 0.5);
+  postfx.update(dt, damagePulse, lowHp, glitch);
 
   sfx.updateListener(rig.camera);
   input.endFrame();
