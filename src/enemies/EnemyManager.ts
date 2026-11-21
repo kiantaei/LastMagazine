@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Collider } from '../world/MapBuilder';
 import { Enemy, type EnemyFx } from './Enemy';
+import type { Assets } from '../core/Assets';
 
 export interface ManagerHooks {
   onKill?: (totalKills: number) => void;
@@ -48,6 +49,7 @@ export class EnemyManager {
     private shootables: THREE.Object3D[],
     private spawnPoints: THREE.Vector3[],
     private hooks: ManagerHooks,
+    private assets: Assets,
   ) {}
 
   start(): void {
@@ -137,7 +139,7 @@ export class EnemyManager {
     let enemy = this.pool.find((e) => !e.alive);
     if (!enemy) {
       if (this.pool.length >= POOL_SIZE) return; // pool exhausted, retry next tick
-      enemy = new Enemy(this.scene);
+      enemy = new Enemy(this.scene, this.assets);
       enemy.onKilled = () => {
         this.kills++;
         this.removeHitMeshes(enemy as Enemy);
