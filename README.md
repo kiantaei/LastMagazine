@@ -19,7 +19,7 @@ and car headlights are the only lights left.
 
 ```bash
 npm install
-npm run dev        # → http://localhost:5173
+npm run dev        # → http://localhost:5173 (port pinned + strict)
 ```
 
 Production build:
@@ -31,6 +31,84 @@ npm run preview    # serves dist/
 
 Desktop browser + mouse + sound required. Click to hit the streets (pointer
 lock), Esc pauses, click to resume.
+
+## Desktop launcher (one command)
+
+`launcher.py` does everything: it starts `npm run dev` in the background,
+waits until the server answers on `http://localhost:5173`, opens the game in
+a native **1280×720** desktop window (pywebview), and kills the Node server
+the moment the window closes — nothing lingers in the background.
+
+### Step-by-step setup
+
+1. **Install Node.js 18+** — https://nodejs.org (`node -v` and `npm -v` must work).
+2. **Install Python 3.9+** — https://python.org (Linux/macOS usually have it).
+3. **Install the game's npm dependencies** (one-time):
+   ```bash
+   cd lastmagazine
+   npm install
+   ```
+4. **Install the Python GUI library** (one-time):
+   ```bash
+   python -m pip install pywebview
+   ```
+   Optional but tidy — use a virtual environment instead:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate        # Windows: .venv\Scripts\activate
+   pip install pywebview
+   ```
+5. **Play:**
+   ```bash
+   python launcher.py
+   ```
+
+### Launcher flags
+
+| flag | what it does |
+| --- | --- |
+| `python launcher.py` | dev server + native 1280×720 webview window |
+| `python launcher.py --browser` | dev server + your default browser (no webview needed) |
+| `python launcher.py --check` | verify toolchain + server boot/HTTP/shutdown, no GUI — use this if anything misbehaves |
+
+### Folder structure
+
+```
+lastmagazine/
+├── index.html          # entry (Vite root)
+├── launcher.py         # Python desktop launcher (pywebview)
+├── package.json        # scripts: dev / build / preview
+├── vite.config.ts      # port 5173 pinned + strict
+├── public/
+│   └── models/         # GLB assets (characters, cars, weapons)
+└── src/                # game code (TypeScript, Three.js)
+    ├── main.ts         # bootstrap + frame loop
+    ├── core/           # assets, input, audio, personas, HUD
+    ├── world/          # city generation
+    ├── npcs/           # civilians, police, NpcFactory variety system
+    ├── player/         # first-person player + rig
+    ├── vehicles/       # car physics + carjacking
+    ├── systems/        # wanted level, city life (hunger/robbery)
+    ├── weapons/        # P9C viewmodel, FX, recoil
+    ├── fx/             # particles, effects
+    └── audio/          # procedural audio engine
+```
+
+### Troubleshooting
+
+- **"Node.js / npm was not found on PATH"** — install Node from nodejs.org,
+  reopen the terminal, run again.
+- **"the dev server did not answer"** — something else is using port 5173.
+  Close it, or change `PORT` at the top of `launcher.py` (it matches
+  `vite.config.ts`).
+- **Mouse capture feels off inside the desktop window** — pywebview uses the
+  platform's native web engine and pointer-lock support varies; run
+  `python launcher.py --browser` for guaranteed capture in a real browser.
+- **Linux webview errors** — pywebview needs a GTK/QT backend
+  (`sudo apt install python3-gir1.2-webkit2-4.1` on Debian/Ubuntu); the
+  `--browser` mode sidesteps it entirely.
+- **Sanity check anytime** — `python launcher.py --check`.
+
 
 ## Controls
 
