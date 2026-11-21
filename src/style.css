@@ -167,6 +167,17 @@ body {
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
 }
 
+/* cash readout (under the persona) */
+#hud-cash {
+  position: absolute;
+  top: 64px;
+  right: 22px;
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: #9fe08f;
+  opacity: 0.95;
+}
+
 /* interaction hint (centre bottom) */
 #hud-interact {
   position: absolute;
@@ -294,6 +305,25 @@ body {
 }
 
 #hud-hp-fill.low {
+  background: #ff5040;
+  animation: blink 0.9s steps(2, start) infinite;
+}
+
+#hud-hunger-bar {
+  width: 150px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+#hud-hunger-fill {
+  height: 100%;
+  width: 100%;
+  background: #e0a44a;
+  transition: width 0.15s;
+}
+
+#hud-hunger-fill.low {
   background: #ff5040;
   animation: blink 0.9s steps(2, start) infinite;
 }

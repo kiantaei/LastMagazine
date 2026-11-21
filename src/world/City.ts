@@ -147,6 +147,12 @@ export interface ParkingSpot {
   yaw: number;
 }
 
+export interface StorePoint {
+  name: string;
+  /** register interaction point (on the sidewalk in front of the sign) */
+  register: THREE.Vector3;
+}
+
 /**
  * Night city: road grid with sidewalks, dark high-rise blocks, alley fires,
  * dumpsters and perimeter walls. Lit only by the weapon light, muzzle flash
@@ -159,6 +165,10 @@ export class City {
   readonly fires: Fire[] = [];
   readonly firePositions: THREE.Vector3[] = [];
   readonly parkingSpots: ParkingSpot[] = [];
+  /** market/liquor/pawn registers for the robbery system */
+  readonly storePoints: StorePoint[] = [];
+  /** hot-dog cart interaction points */
+  readonly cartPoints: THREE.Vector3[] = [];
   /** sidewalk waypoints for civilian wandering */
   readonly walkPoints: THREE.Vector3[] = [];
   /** roadside points for police spawns */
@@ -347,6 +357,9 @@ export class City {
   }
 
   private buildFiresAndProps(): void {
+    this.buildStreetlights();
+    this.buildKiosksAndCarts();
+
     const fireBarrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.95, 14);
     const fireBarrelMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.7, metalness: 0.4, color: 0x4a4440 });
     const metal = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.55, metalness: 0.6 });
@@ -401,6 +414,127 @@ export class City {
       this.roadSpawnPoints.push(new THREE.Vector3(c, 0, 70));
       this.roadSpawnPoints.push(new THREE.Vector3(-70, 0, c));
       this.roadSpawnPoints.push(new THREE.Vector3(70, 0, c));
+    }
+  }
+
+  // ---------------------------------------------------- street furniture
+  /**
+   * Streetlight poles along every road (instanced). The heads are emissive
+   * paint only — they read as sodium lamps in the dark without adding a
+   * single real light, keeping the flashlight/muzzle-flash look.
+   */
+  private buildStreetlights(): void {
+    const positions: THREE.Vector3[] = [];
+    for (const c of ROAD_CENTERS) {
+      for (let t = -65; t <= 65; t += 26) {
+        const side = ((t / 26) % 2 === 0 ? 1 : -1) * (ROAD / 2 - 1.2);
+        positions.push(new THREE.Vector3(c + side, 0, t)); // N-S road
+        positions.push(new THREE.Vector3(t, 0, c + side)); // E-W road
+      }
+    }
+    const count = positions.length;
+
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.7, metalness: 0.5 });
+    const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.11, 5.4, 8), poleMat, count);
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1c20,
+      emissive: new THREE.Color(0x9fb4d8),
+      emissiveIntensity: 1.5,
+      roughness: 0.4,
+    });
+    const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.16, 0.4), headMat, count);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    positions.forEach((p, i) => {
+      m.compose(new THREE.Vector3(p.x, 2.7, p.z), q, one);
+      poles.setMatrixAt(i, m);
+      m.compose(new THREE.Vector3(p.x, 5.42, p.z), q, one);
+      heads.setMatrixAt(i, m);
+    });
+    poles.castShadow = false;
+    heads.castShadow = false;
+    this.group.add(poles, heads);
+  }
+
+  /** glowing sign texture (self-lit, no real light) */
+  private signTex(text: string, color: string): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 96;
+    const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+    ctx.fillStyle = '#0a0b0d';
+    ctx.fillRect(0, 0, 256, 96);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, 248, 88);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 34px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 128, 50);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private addKiosk(pos: THREE.Vector3, sign: string, color: string): THREE.Vector3 {
+    const bodyMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.6, metalness: 0.5, color: 0x3a3f46 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.6, 2.2), bodyMat);
+    body.position.set(pos.x, 1.42, pos.z);
+    body.castShadow = body.receiveShadow = true;
+    this.group.add(body);
+    this.hittables.push(body);
+    this.colliders.push({
+      min: new THREE.Vector3(pos.x - 1.3, 0, pos.z - 1.1),
+      max: new THREE.Vector3(pos.x + 1.3, 2.72, pos.z + 1.1),
+    });
+
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.3, 0.85),
+      new THREE.MeshBasicMaterial({ map: this.signTex(sign, color) }),
+    );
+    // face toward the city centre, offset rotated with the sign
+    const toCenter = new THREE.Vector3(-pos.x, 0, -pos.z);
+    const yaw = toCenter.lengthSq() < 0.01 ? 0 : Math.atan2(toCenter.x, toCenter.z);
+    face.rotation.y = yaw;
+    face.position.set(Math.sin(yaw) * 1.11, 2.1, Math.cos(yaw) * 1.11).add(pos);
+    this.group.add(face);
+
+    // register interaction point in front of the sign
+    return new THREE.Vector3(pos.x + Math.sin(yaw) * 2.2, 0, pos.z + Math.cos(yaw) * 2.2);
+  }
+
+  private buildKiosksAndCarts(): void {
+    // 24/7 market kiosks — rob their registers
+    this.storePoints.push(
+      { name: 'MARKET', register: this.addKiosk(new THREE.Vector3(-17, 0, -17), '24/7 MARKET', '#ffd257') },
+      { name: 'LIQUOR', register: this.addKiosk(new THREE.Vector3(69, 0, 17), 'LIQUOR 24/7', '#7dff9a') },
+      { name: 'PAWN', register: this.addKiosk(new THREE.Vector3(-69, 0, 69), 'PAWN SHOP', '#ff8a5c') },
+    );
+
+    // hot-dog carts — the cheap way to stave off hunger
+    const cartMat = new THREE.MeshStandardMaterial({ map: metalTex(), roughness: 0.6, metalness: 0.45, color: 0x8a4a2a });
+    for (const [x, z] of [
+      [17, 17],
+      [17, -17],
+    ] as const) {
+      const cart = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.05, 0.95), cartMat);
+      cart.position.set(x, 0.72, z);
+      cart.castShadow = cart.receiveShadow = true;
+      this.group.add(cart);
+      this.hittables.push(cart);
+      this.colliders.push({
+        min: new THREE.Vector3(x - 0.85, 0, z - 0.5),
+        max: new THREE.Vector3(x + 0.85, 1.24, z + 0.5),
+      });
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.5, 0.5),
+        new THREE.MeshBasicMaterial({ map: this.signTex('HOT DOG $5', '#ffae4a') }),
+      );
+      sign.position.set(x, 1.85, z + 0.48);
+      this.group.add(sign);
+      this.cartPoints.push(new THREE.Vector3(x, 0, z + 1.8));
     }
   }
 
