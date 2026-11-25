@@ -38,15 +38,7 @@ jobs:
 
       - name: Configure (Linux)
         if: runner.os == 'Linux'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Configure (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DGLM_INCLUDE_DIR="$env:GITHUB_WORKSPACE/glm"
+        run: cmake -B build -S native -DCMAKE_BUILD_TYPE=Release
 
       - name: Fetch GLM headers (Windows)
         if: runner.os == 'Windows'
@@ -55,6 +47,14 @@ jobs:
           Invoke-WebRequest -Uri https://github.com/g-truc/glm/archive/refs/tags/1.0.1.zip -OutFile glm.zip
           Expand-Archive glm.zip -DestinationPath glm-ext
           Move-Item glm-ext/glm-1.0.1 glm
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B build -S native -DCMAKE_BUILD_TYPE=Release -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DGLM_INCLUDE_DIR="$env:GITHUB_WORKSPACE/glm"
 
       - name: Build
         run: cmake --build build --config Release
@@ -65,8 +65,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path pkg/shaders | Out-Null
           if ($IsWindows) { Copy-Item build/Release/ironhorizon.exe pkg/ }
           else { Copy-Item build/ironhorizon pkg/ }
-          Copy-Item build/shaders/*.spv pkg/shaders/
-          Copy-Item build/assets/models pkg/ -Recurse
+          Get-ChildItem -Path build -Recurse -Filter *.spv | Copy-Item -Destination pkg/shaders/
+          Copy-Item native/assets/models pkg/models -Recurse
           if ($IsWindows) {
             Compress-Archive -Path pkg/* -DestinationPath "${{ matrix.artifact }}.zip" -Force
           } else {
