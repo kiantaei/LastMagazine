@@ -8,7 +8,7 @@
 struct JetState {
     glm::vec3 pos{0.0f, 900.0f, 0.0f};
     float yaw = 0.0f;      // radians, 0 = -Z
-    float pitch = 0.0f;
+    float pitch = 0.06f;   // slight nose-up spawn attitude
     float roll = 0.0f;
     float speed = 240.0f;  // m/s
     float throttle = 0.6f;

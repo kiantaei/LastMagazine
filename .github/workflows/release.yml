@@ -66,6 +66,7 @@ jobs:
           if ($IsWindows) { Copy-Item build/Release/ironhorizon.exe pkg/ }
           else { Copy-Item build/ironhorizon pkg/ }
           Copy-Item build/shaders/*.spv pkg/shaders/
+          Copy-Item build/assets/models pkg/ -Recurse
           if ($IsWindows) {
             Compress-Archive -Path pkg/* -DestinationPath "${{ matrix.artifact }}.zip" -Force
           } else {

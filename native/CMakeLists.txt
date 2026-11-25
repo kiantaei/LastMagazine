@@ -14,6 +14,7 @@ add_executable(ironhorizon
     src/main.cpp
     src/vk_renderer.cpp
     src/world.cpp
+    src/gltf.cpp
 )
 target_link_libraries(ironhorizon PRIVATE Vulkan::Vulkan glfw)
 
@@ -54,3 +55,9 @@ foreach(SHADER tri.vert tri.frag)
 endforeach()
 add_custom_target(shaders ALL DEPENDS ${SPIRV_OUT})
 add_dependencies(ironhorizon shaders)
+
+# Ship the glb models next to the binary (run from native/ or build/)
+add_custom_command(TARGET ironhorizon POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:ironhorizon>/assets
+    COMMENT "copying assets")

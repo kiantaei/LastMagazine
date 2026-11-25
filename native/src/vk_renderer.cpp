@@ -466,8 +466,15 @@ void VulkanRenderer::ensureBufferCapacity(VkBuffer& buffer, VkDeviceMemory& memo
 }
 
 void VulkanRenderer::uploadMesh(const MeshData& mesh) {
-    uint64_t vBytes = mesh.vertices.size() * sizeof(float);
-    uint64_t iBytes = mesh.indices.size() * sizeof(uint32_t);
+    // Append into shared GPU buffers so every uploaded mesh stays resident;
+    // main.cpp draws each with the offsets from vertexBase()/indexBase()
+    uint32_t vBase = static_cast<uint32_t>(stagingVerts_.size() / 6);
+    stagingVerts_.insert(stagingVerts_.end(), mesh.vertices.begin(), mesh.vertices.end());
+    stagingIndices_.reserve(stagingIndices_.size() + mesh.indices.size());
+    for (uint32_t idx : mesh.indices) stagingIndices_.push_back(idx + vBase);
+
+    uint64_t vBytes = stagingVerts_.size() * sizeof(float);
+    uint64_t iBytes = stagingIndices_.size() * sizeof(uint32_t);
     ensureBufferCapacity(vertexBuffer_, vertexMemory_, vertexCapacity_,
                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vBytes);
     ensureBufferCapacity(indexBuffer_, indexMemory_, indexCapacity_,
@@ -475,10 +482,10 @@ void VulkanRenderer::uploadMesh(const MeshData& mesh) {
 
     void* dst = nullptr;
     vkMapMemory(device_, vertexMemory_, 0, vBytes, 0, &dst);
-    std::memcpy(dst, mesh.vertices.data(), vBytes);
+    std::memcpy(dst, stagingVerts_.data(), vBytes);
     vkUnmapMemory(device_, vertexMemory_);
     vkMapMemory(device_, indexMemory_, 0, iBytes, 0, &dst);
-    std::memcpy(dst, mesh.indices.data(), iBytes);
+    std::memcpy(dst, stagingIndices_.data(), iBytes);
     vkUnmapMemory(device_, indexMemory_);
 }
 

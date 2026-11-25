@@ -26,7 +26,9 @@ struct DrawItem {
 class VulkanRenderer {
 public:
     void init(GLFWwindow* window);
-    void uploadMesh(const MeshData& mesh);   // one combined mesh, drawn via offsets
+    void uploadMesh(const MeshData& mesh);   // appends; draw via returned offsets
+    uint64_t vertexBase() const { return stagingVerts_.size() / 6; }
+    uint64_t indexBase() const { return stagingIndices_.size(); }
     void drawFrame(const std::vector<DrawItem>& items);
     void waitIdle();
     void cleanup();
@@ -73,6 +75,8 @@ private:
     VkDeviceMemory indexMemory_ = VK_NULL_HANDLE;
     uint64_t vertexCapacity_ = 0;
     uint64_t indexCapacity_ = 0;
+    std::vector<float> stagingVerts_;    // all uploaded meshes, appended
+    std::vector<uint32_t> stagingIndices_;
 
     static constexpr size_t MAX_FRAMES = 2;
     std::vector<VkSemaphore> imageAvailable_;
