@@ -32,8 +32,9 @@ jobs:
         shell: pwsh
         run: |
           choco install vulkan-sdk --no-progress -y
-          $sdk = Get-ChildItem C:/ -Filter "VulkanSDK*" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $sdk = Get-ChildItem C:/VulkanSDK -Directory | Sort-Object Name -Descending | Select-Object -First 1
           echo "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          echo "VULKAN_SDK set to $($sdk.FullName)"
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install glfw3:x64-windows
 
       - name: Configure (Linux)
