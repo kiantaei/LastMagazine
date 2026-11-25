@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BODYCAM // BLACKOUT OPS</title>
+  <script type="module" crossorigin src="/assets/index-CDJyBa_M.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BXWzT4Ei.css">
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <!-- Subtle Bodycam Lens Overlay -->
+  <div id="lens-overlay" aria-hidden="true"></div>
+  <div id="damage-vignette" aria-hidden="true"></div>
+
+  <!-- Bodycam HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-top-left">
+      <div class="cam-tag">CAM-04 // TAC-RESPONSE</div>
+      <div class="cam-sub">SECTOR: ABANDONED DEPOT-7</div>
+      <div class="cam-sub" id="hud-kills">HOSTILES NEUTRALIZED: 0</div>
+    </div>
+
+    <div class="hud-top-right">
+      <div class="rec-line">
+        <span class="rec-dot"></span>
+        <span class="rec-text">REC</span>
+        <span id="hud-clock">2026-11-25 18:04:00</span>
+      </div>
+      <div class="cam-sub">AXON-TAC // 4K RAW // ISO 12800</div>
+      <div class="cam-sub" id="hud-wave">THREAT LEVEL: HIGH [WAVE 1]</div>
+    </div>
+
+    <div class="hud-bottom-left">
+      <div class="status-row">
+        <span class="status-label">VITALS</span>
+        <div class="bar-track"><div id="hp-bar" class="bar-fill hp"></div></div>
+        <span id="hp-val" class="status-val">100</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">STAMINA</span>
+        <div class="bar-track"><div id="stam-bar" class="bar-fill stam"></div></div>
+        <span id="stam-val" class="status-val">100</span>
+      </div>
+    </div>
+
+    <div class="hud-bottom-right">
+      <div class="weapon-name">G19 MOD-T // 9×19MM</div>
+      <div class="ammo-readout">
+        <span id="ammo-mag">15</span>
+        <span class="ammo-sep">/</span>
+        <span id="ammo-res">60</span>
+      </div>
+      <div class="tac-flags">
+        <span id="flag-light" class="flag active">[F] LIGHT: ON</span>
+        <span id="flag-reload" class="flag">[R] RELOAD</span>
+      </div>
+    </div>
+
+    <div id="reload-prompt" class="center-prompt hidden">MAGAZINE EMPTY — PRESS [R]</div>
+    <div id="hit-marker" class="hidden"></div>
+  </div>
+
+  <!-- Menu / Briefing / Pause / End Screen -->
+  <div id="overlay-screen">
+    <div class="terminal-box">
+      <div class="terminal-header">
+        <span class="rec-dot"></span>
+        <span>AXON-TAC // BODYCAM FEED INITIALIZATION</span>
+      </div>
+      <h1 id="overlay-title">OPERATION: BLACKOUT</h1>
+      <p id="overlay-desc">
+        Power grid is dead. Hostile armed insurgents have occupied Depot-7.
+        Your weapon-mounted tactical flashlight and muzzle flash are your only light sources.
+        Clear all threats and survive.
+      </p>
+
+      <div class="controls-grid">
+        <div><kbd>W A S D</kbd> Move</div>
+        <div><kbd>SHIFT</kbd> Tactical Sprint</div>
+        <div><kbd>C</kbd> / <kbd>CTRL</kbd> Crouch</div>
+        <div><kbd>Q</kbd> / <kbd>E</kbd> Lean Left / Right</div>
+        <div><kbd>LMB</kbd> Fire</div>
+        <div><kbd>RMB</kbd> Aim Down Sights</div>
+        <div><kbd>R</kbd> Tactical Reload</div>
+        <div><kbd>F</kbd> Toggle Flashlight</div>
+      </div>
+
+      <button id="start-btn" type="button">DEPLOY [CLICK TO LOCK CURSOR]</button>
+      <div id="overlay-stats" class="hidden"></div>
+    </div>
+  </div>
+
+</body>
+</html>
