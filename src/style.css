@@ -450,3 +450,21 @@ body {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Mobile: compact combat HUD, prevent stat overlaps */
+@media (max-width: 640px) {
+  .hud-bottom-left {
+    left: 14px;
+    bottom: 14px;
+    width: min(280px, calc(100vw - 28px));
+  }
+  .hud-top-left {
+    left: 14px;
+    top: 14px;
+    right: 14px;
+  }
+  .sys-row {
+    font-size: 10px;
+    gap: 6px;
+  }
+}

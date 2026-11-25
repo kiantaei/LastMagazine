@@ -3,94 +3,127 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BODYCAM // BLACKOUT OPS</title>
-  <script type="module" crossorigin src="/assets/index-CDJyBa_M.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-BXWzT4Ei.css">
+  <title>IRON HORIZON // COMBINED ARMS MILITARY SIMULATOR</title>
+  <script type="module" crossorigin src="/assets/index-DA41ni_o.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CeGLKn7A.css">
 </head>
 <body>
-  <canvas id="game-canvas"></canvas>
+  <canvas id="sim-canvas"></canvas>
+  <canvas id="hud-canvas" class="hidden"></canvas>
 
-  <!-- Subtle Bodycam Lens Overlay -->
-  <div id="lens-overlay" aria-hidden="true"></div>
-  <div id="damage-vignette" aria-hidden="true"></div>
+  <!-- G-Force Blackout / Damage Vignette -->
+  <div id="g-vignette" aria-hidden="true"></div>
+  <div id="hit-vignette" aria-hidden="true"></div>
 
-  <!-- Bodycam HUD -->
-  <div id="hud" class="hidden">
+  <!-- Combat Telemetry HUD -->
+  <div id="combat-hud" class="hidden">
     <div class="hud-top-left">
-      <div class="cam-tag">CAM-04 // TAC-RESPONSE</div>
-      <div class="cam-sub">SECTOR: ABANDONED DEPOT-7</div>
-      <div class="cam-sub" id="hud-kills">HOSTILES NEUTRALIZED: 0</div>
-    </div>
-
-    <div class="hud-top-right">
-      <div class="rec-line">
-        <span class="rec-dot"></span>
-        <span class="rec-text">REC</span>
-        <span id="hud-clock">2026-11-25 18:04:00</span>
+      <div class="unit-badge" id="hud-vehicle-name">F-16C FIGHTING FALCON</div>
+      <div class="mission-sub" id="hud-mission-name">OP IRON EAGLE</div>
+      <div class="score-row">
+        <span>KILLS: <strong id="hud-kills">0</strong></span>
+        <span>HOSTILES: <strong id="hud-hostiles">0</strong></span>
       </div>
-      <div class="cam-sub">AXON-TAC // 4K RAW // ISO 12800</div>
-      <div class="cam-sub" id="hud-wave">THREAT LEVEL: HIGH [WAVE 1]</div>
+      <div id="event-feed" class="event-feed" aria-live="polite"></div>
     </div>
 
     <div class="hud-bottom-left">
-      <div class="status-row">
-        <span class="status-label">VITALS</span>
-        <div class="bar-track"><div id="hp-bar" class="bar-fill hp"></div></div>
-        <span id="hp-val" class="status-val">100</span>
+      <div class="sys-row">
+        <span>HULL / AIRFRAME</span>
+        <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
+        <span id="hp-text">100%</span>
       </div>
-      <div class="status-row">
-        <span class="status-label">STAMINA</span>
-        <div class="bar-track"><div id="stam-bar" class="bar-fill stam"></div></div>
-        <span id="stam-val" class="status-val">100</span>
+      <div class="sys-row" id="throttle-row">
+        <span id="throttle-label">THROTTLE</span>
+        <div class="bar-track"><div id="thr-fill" class="bar-fill amber"></div></div>
+        <span id="thr-text">78%</span>
+      </div>
+      <div class="control-pills">
+        <span id="pill-cam" class="pill">[V] CAM: 3RD PERSON</span>
+        <span id="pill-gear" class="pill">[G] GEAR: UP</span>
+        <span id="pill-brake" class="pill">[B] BRAKE</span>
       </div>
     </div>
 
     <div class="hud-bottom-right">
-      <div class="weapon-name">G19 MOD-T // 9×19MM</div>
-      <div class="ammo-readout">
-        <span id="ammo-mag">15</span>
-        <span class="ammo-sep">/</span>
-        <span id="ammo-res">60</span>
+      <div class="weapon-rack" id="weapon-rack">
+        <div class="wep-slot active" data-wep="cannon">
+          <span>[1] CANNON</span>
+          <strong id="ammo-cannon">510</strong>
+        </div>
+        <div class="wep-slot" data-wep="aim9">
+          <span>[2] AIM-9L / HEAT</span>
+          <strong id="ammo-sec1">2</strong>
+        </div>
+        <div class="wep-slot" data-wep="aim120">
+          <span>[3] AIM-120 / AGM</span>
+          <strong id="ammo-sec2">4</strong>
+        </div>
+        <div class="wep-slot" data-wep="flare">
+          <span>[X] FLARES / SMOKE</span>
+          <strong id="ammo-flare">60</strong>
+        </div>
       </div>
-      <div class="tac-flags">
-        <span id="flag-light" class="flag active">[F] LIGHT: ON</span>
-        <span id="flag-reload" class="flag">[R] RELOAD</span>
-      </div>
-    </div>
-
-    <div id="reload-prompt" class="center-prompt hidden">MAGAZINE EMPTY — PRESS [R]</div>
-    <div id="hit-marker" class="hidden"></div>
-  </div>
-
-  <!-- Menu / Briefing / Pause / End Screen -->
-  <div id="overlay-screen">
-    <div class="terminal-box">
-      <div class="terminal-header">
-        <span class="rec-dot"></span>
-        <span>AXON-TAC // BODYCAM FEED INITIALIZATION</span>
-      </div>
-      <h1 id="overlay-title">OPERATION: BLACKOUT</h1>
-      <p id="overlay-desc">
-        Power grid is dead. Hostile armed insurgents have occupied Depot-7.
-        Your weapon-mounted tactical flashlight and muzzle flash are your only light sources.
-        Clear all threats and survive.
-      </p>
-
-      <div class="controls-grid">
-        <div><kbd>W A S D</kbd> Move</div>
-        <div><kbd>SHIFT</kbd> Tactical Sprint</div>
-        <div><kbd>C</kbd> / <kbd>CTRL</kbd> Crouch</div>
-        <div><kbd>Q</kbd> / <kbd>E</kbd> Lean Left / Right</div>
-        <div><kbd>LMB</kbd> Fire</div>
-        <div><kbd>RMB</kbd> Aim Down Sights</div>
-        <div><kbd>R</kbd> Tactical Reload</div>
-        <div><kbd>F</kbd> Toggle Flashlight</div>
-      </div>
-
-      <button id="start-btn" type="button">DEPLOY [CLICK TO LOCK CURSOR]</button>
-      <div id="overlay-stats" class="hidden"></div>
+      <button id="btn-pause-menu" type="button" class="hud-btn">[ESC] COMMAND MENU</button>
     </div>
   </div>
+
+  <!-- Military Hangar, Customization & Mission Selection Screen -->
+  <main id="hangar-ui">
+    <aside class="hangar-sidebar">
+      <header class="brand-header">
+        <div class="brand-kicker">TACTICAL COMBINED ARMS SIMULATOR</div>
+        <h1>IRON HORIZON</h1>
+      </header>
+
+      <section class="panel-section">
+        <h2>1. SELECT COMBAT VEHICLE</h2>
+        <div class="category-tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-cat="jet">FIGHTER JETS</button>
+          <button type="button" class="tab-btn" data-cat="heli">HELICOPTERS</button>
+          <button type="button" class="tab-btn" data-cat="tank">ARMOR / TANKS</button>
+        </div>
+        <div id="vehicle-list" class="card-list"></div>
+      </section>
+
+      <section class="panel-section">
+        <h2>2. PAINT &amp; ORDNANCE</h2>
+        <label class="field-label" for="livery-select">CAMOUFLAGE / LIVERY</label>
+        <select id="livery-select" class="tac-select"></select>
+
+        <label class="field-label" for="loadout-select">ARMAMENT LOADOUT</label>
+        <select id="loadout-select" class="tac-select"></select>
+      </section>
+
+      <section class="panel-section">
+        <h2>3. THEATRE OPERATION</h2>
+        <div id="mission-list" class="card-list"></div>
+      </section>
+    </aside>
+
+    <section class="hangar-footer-panel">
+      <div class="spec-card">
+        <h3 id="spec-title">F-16C Fighting Falcon</h3>
+        <p id="spec-summary"></p>
+        <div id="spec-metrics" class="spec-metrics"></div>
+      </div>
+
+      <div class="deploy-actions">
+        <button id="btn-controls" type="button" class="sec-btn">FLIGHT &amp; ARMOR CONTROLS</button>
+        <button id="btn-deploy" type="button" class="primary-btn">LAUNCH SORTIE / DEPLOY</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Native Dialog for Controls & Pause / End Report -->
+  <dialog id="sim-dialog" class="tac-dialog">
+    <h2 id="dialog-title">FLIGHT &amp; COMBAT CONTROLS</h2>
+    <div id="dialog-body" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button id="dialog-hangar-btn" type="button" class="sec-btn hidden">RETURN TO HANGAR</button>
+      <button id="dialog-close-btn" type="button" class="primary-btn">CLOSE / RESUME</button>
+    </div>
+  </dialog>
 
 </body>
 </html>
