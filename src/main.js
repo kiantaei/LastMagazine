@@ -21,7 +21,11 @@ const hudCanvas = document.getElementById('hud-canvas');
 
 const IS_SMALL_SCREEN = Math.min(window.innerWidth, window.innerHeight) < 760;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_SMALL_SCREEN, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_SMALL_SCREEN ? 1.5 : 2));
+const basePixelRatio = Math.min(window.devicePixelRatio, IS_SMALL_SCREEN ? 1.5 : 2);
+renderer.setPixelRatio(basePixelRatio);
+let resScale = 1;
+let fpsAvg = 16.7;
+let resTimer = 0;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -36,6 +40,9 @@ const sun = new THREE.DirectionalLight(0xfff2dd, 2.6);
 sun.position.set(-900, 1400, 500);
 sun.castShadow = true;
 sun.shadow.mapSize.set(IS_SMALL_SCREEN ? 1024 : 2048, IS_SMALL_SCREEN ? 1024 : 2048);
+// Rebuilding shadow maps every frame is expensive; every 2nd frame is
+// visually identical for a moving sun but halves that cost
+sun.shadow.autoUpdate = false;
 sun.shadow.camera.left = -600;
 sun.shadow.camera.right = 600;
 sun.shadow.camera.top = 600;
@@ -644,9 +651,13 @@ function updateCamera(dt) {
     camera.lookAt(_tmp.copy(p.pos).addScaledVector(playerForward(_fwd2), 25));
     camera.fov = cat === 'tank' ? 58 : 66;
   }
+  // Ease zoom between camera modes instead of snapping
+  _targetFov += (camera.fov - _targetFov) * (1 - Math.exp(-8 * dt));
+  camera.fov = _targetFov;
   camera.updateProjectionMatrix();
 }
 
+let _targetFov = 66;
 let hudTimer = 0;
 function updateHUD(dt) {
   const p = state.player;
@@ -710,6 +721,21 @@ async function init() {
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
   state.time += dt;
+
+  // Dynamic resolution scaling: hold a stable frame rate by trading render
+  // resolution — smooth motion beats a few extra pixels
+  fpsAvg += (dt * 1000 - fpsAvg) * 0.05;
+  resTimer += dt;
+  if (resTimer > 1) {
+    resTimer = 0;
+    if (fpsAvg > 23 && resScale > 0.62) {
+      resScale = Math.max(0.62, resScale - 0.14);
+      renderer.setPixelRatio(basePixelRatio * resScale);
+    } else if (fpsAvg < 14.5 && resScale < 1) {
+      resScale = Math.min(1, resScale + 0.08);
+      renderer.setPixelRatio(basePixelRatio * resScale);
+    }
+  }
 
   if (state.phase === 'hangar' && hangar) {
     hangar.update(dt, camera);
@@ -793,6 +819,9 @@ function tick() {
   }
 
   updateCamera(dt);
+  // Shadow maps refresh every 2nd frame (autoUpdate is off) — imperceptible
+  // for a moving sun, but removes that pass from every other frame
+  sun.shadow.needsUpdate = !sun.shadow.needsUpdate;
   if (p) {
     hud.render({
       camera,
