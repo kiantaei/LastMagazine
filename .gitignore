@@ -1,1 +1,3 @@
+native/build/
+dist/
 node_modules/

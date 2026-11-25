@@ -1,0 +1,97 @@
+name: Build native release
+
+on:
+  release:
+    types: [published]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: ironhorizon-linux-x64
+          - os: windows-latest
+            artifact: ironhorizon-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev libglfw3-dev libglm-dev glslang-tools
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --no-progress -y
+          $sdk = Get-ChildItem C:/ -Filter "VulkanSDK*" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          echo "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install glfw3:x64-windows
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DGLM_INCLUDE_DIR="$env:GITHUB_WORKSPACE/glm"
+
+      - name: Fetch GLM headers (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/g-truc/glm/archive/refs/tags/1.0.1.zip -OutFile glm.zip
+          Expand-Archive glm.zip -DestinationPath glm-ext
+          Move-Item glm-ext/glm-1.0.1 glm
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path pkg/shaders | Out-Null
+          if ($IsWindows) { Copy-Item build/Release/ironhorizon.exe pkg/ }
+          else { Copy-Item build/ironhorizon pkg/ }
+          Copy-Item build/shaders/*.spv pkg/shaders/
+          if ($IsWindows) {
+            Compress-Archive -Path pkg/* -DestinationPath "${{ matrix.artifact }}.zip" -Force
+          } else {
+            (cd pkg && zip -r "../${{ matrix.artifact }}.zip" .)
+          }
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.artifact }}.zip" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Create release from tag
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ matrix.artifact }}.zip" \
+            --title "IRON HORIZON $GITHUB_REF_NAME" \
+            --notes "Native C++ Vulkan builds. Download for your OS, extract and run." \
+            --repo "$GITHUB_REPOSITORY" || \
+          gh release upload "$GITHUB_REF_NAME" "${{ matrix.artifact }}.zip" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
