@@ -200,14 +200,21 @@ export class SimAudio {
     if (!this.ctx || !this.engineNodes) return;
     if (this.rwrCooldown > 0) this.rwrCooldown -= dt;
 
+    // Smooth parameter ramps: setting .value every frame causes audible
+    // zipper/crackle (the "bitrate" artifact)
+    const T = this.ctx.currentTime;
+    const ramp = (param, target) => {
+      if (Math.abs(param.value - target) > 0.0001) param.setTargetAtTime(target, T, 0.08);
+    };
+
     if (this.mode === 'jet') {
       const { throttle = 0.5, mach = 0.4, afterburner = false, cockpitView = false } = state;
       const intScale = cockpitView ? 0.45 : 1.0;
-      this.engineNodes.whine.frequency.value = 1450 + throttle * 1600;
-      this.engineNodes.whineGain.gain.value = (0.025 + throttle * 0.04) * intScale;
-      this.engineNodes.jetLp.frequency.value = 260 + throttle * 750 + mach * 220;
-      this.engineNodes.jetGain.gain.value = (0.1 + throttle * 0.22) * intScale;
-      this.engineNodes.abGain.gain.value = (afterburner ? 0.34 : 0.001) * intScale;
+      ramp(this.engineNodes.whine.frequency, 1450 + throttle * 1600);
+      ramp(this.engineNodes.whineGain.gain, (0.025 + throttle * 0.04) * intScale);
+      ramp(this.engineNodes.jetLp.frequency, 260 + throttle * 750 + mach * 220);
+      ramp(this.engineNodes.jetGain.gain, (0.1 + throttle * 0.22) * intScale);
+      ramp(this.engineNodes.abGain.gain, (afterburner ? 0.34 : 0.001) * intScale);
 
       const supersonic = mach >= 1.0;
       if (supersonic && !this.wasSupersonic) {
@@ -216,14 +223,14 @@ export class SimAudio {
       this.wasSupersonic = supersonic;
     } else if (this.mode === 'heli') {
       const { collective = 0.5, speedRatio = 0 } = state;
-      this.engineNodes.lfo.frequency.value = 15 + collective * 5;
-      this.engineNodes.rotorGain.gain.value = 0.14 + collective * 0.12 + speedRatio * 0.06;
-      this.engineNodes.shaft.frequency.value = 390 + collective * 110;
+      ramp(this.engineNodes.lfo.frequency, 15 + collective * 5);
+      ramp(this.engineNodes.rotorGain.gain, 0.14 + collective * 0.12 + speedRatio * 0.06);
+      ramp(this.engineNodes.shaft.frequency, 390 + collective * 110);
     } else if (this.mode === 'tank') {
       const { throttle = 0, speedRatio = 0 } = state;
-      this.engineNodes.diesel.frequency.value = 42 + Math.abs(throttle) * 34 + speedRatio * 18;
-      this.engineNodes.dieselGain.gain.value = 0.12 + Math.abs(throttle) * 0.11;
-      this.engineNodes.tracksGain.gain.value = speedRatio * 0.14;
+      ramp(this.engineNodes.diesel.frequency, 42 + Math.abs(throttle) * 34 + speedRatio * 18);
+      ramp(this.engineNodes.dieselGain.gain, 0.12 + Math.abs(throttle) * 0.11);
+      ramp(this.engineNodes.tracksGain.gain, speedRatio * 0.14);
     }
   }
 

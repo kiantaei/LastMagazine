@@ -4,10 +4,30 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IRON HORIZON // COMBINED ARMS MILITARY SIMULATOR</title>
-  <script type="module" crossorigin src="/assets/index-DA41ni_o.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CeGLKn7A.css">
+  <script type="module" crossorigin src="/assets/index-BDauHodB.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/three-core-B8G36p6G.js">
+  <link rel="modulepreload" crossorigin href="/assets/three-examples-DDLBSf0S.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-BGPaK6Px.css">
 </head>
 <body>
+  <!-- Boot / Deployment Loading Screen (visible before JS parses) -->
+  <div id="loading-screen" aria-live="polite">
+    <div class="boot-frame">
+      <div class="boot-kicker">TACTICAL COMBINED ARMS SIMULATOR</div>
+      <h1 class="boot-title">IRON HORIZON</h1>
+      <div class="boot-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="boot-fill" id="boot-fill"></div>
+        <div class="boot-sheen"></div>
+      </div>
+      <div class="boot-meta">
+        <span id="boot-status">INITIALIZING SYSTEMS</span>
+        <strong id="boot-percent">0%</strong>
+      </div>
+      <div class="boot-log" id="boot-log"></div>
+      <div class="boot-tip" id="boot-tip">TIP: USE [V] TO CYCLE CAMERA MODES MID-SORTIE</div>
+    </div>
+  </div>
+
   <canvas id="sim-canvas"></canvas>
   <canvas id="hud-canvas" class="hidden"></canvas>
 

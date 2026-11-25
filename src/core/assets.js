@@ -60,10 +60,16 @@ export const MODEL_PRESETS = {
 
 export class AssetManager {
   constructor() {
-    this.gltfLoader = new GLTFLoader();
+    this.manager = new THREE.LoadingManager();
+    this.onProgress = null;
+    this.manager.onProgress = (url, loaded, total) => {
+      if (this.onProgress) this.onProgress(url, loaded, total);
+    };
+
+    this.gltfLoader = new GLTFLoader(this.manager);
     this.gltfLoader.setMeshoptDecoder(MeshoptDecoder);
-    this.hdrLoader = new HDRLoader();
-    this.texLoader = new THREE.TextureLoader();
+    this.hdrLoader = new HDRLoader(this.manager);
+    this.texLoader = new THREE.TextureLoader(this.manager);
 
     this.modelCache = new Map();
     this.texCache = new Map();

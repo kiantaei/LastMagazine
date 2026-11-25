@@ -468,3 +468,119 @@ body {
     gap: 6px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Boot / Deployment Loading Screen
+--------------------------------------------------------------------------- */
+
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(245, 158, 11, 0.07), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(148, 163, 184, 0.035) 0 1px, transparent 1px 3px),
+    #05070a;
+  transition: opacity 0.55s ease;
+}
+
+#loading-screen.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-frame {
+  width: min(560px, 86vw);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.boot-kicker {
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  color: var(--dim);
+}
+
+.boot-title {
+  font-size: clamp(30px, 6vw, 46px);
+  letter-spacing: 0.18em;
+  color: var(--fg);
+  text-shadow: 0 0 26px rgba(245, 158, 11, 0.35);
+}
+
+.boot-title::after {
+  content: "";
+  display: block;
+  margin-top: 10px;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+
+.boot-track {
+  position: relative;
+  height: 14px;
+  margin-top: 8px;
+  border: 1px solid var(--border-panel);
+  background: rgba(148, 163, 184, 0.08);
+  overflow: hidden;
+}
+
+.boot-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #b45309, var(--accent) 70%, #fcd34d);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.55);
+  transition: width 0.3s ease-out;
+}
+
+.boot-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.22) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: boot-sheen 1.6s linear infinite;
+}
+
+@keyframes boot-sheen {
+  to { transform: translateX(100%); }
+}
+
+.boot-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--fg);
+}
+
+.boot-meta strong {
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.boot-log {
+  min-height: 44px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  opacity: 0.85;
+}
+
+.boot-log div::before {
+  content: "\25B8  ";
+  color: var(--accent);
+}
+
+.boot-tip {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--accent-green);
+  opacity: 0.9;
+}

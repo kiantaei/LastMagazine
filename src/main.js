@@ -10,6 +10,7 @@ import { getTerrainHeight } from './world/terrain.js';
 import { SimAudio as TacticalAudio } from './audio/simAudio.js';
 import { CombatHUD } from './ui/hud.js';
 import { MilitaryHangarStage } from './ui/hangar.js';
+import { LoadingScreen } from './ui/loading.js';
 
 // ---------------------------------------------------------------------------
 // Renderer / Scene bootstrap
@@ -18,8 +19,9 @@ import { MilitaryHangarStage } from './ui/hangar.js';
 const canvas = document.getElementById('sim-canvas');
 const hudCanvas = document.getElementById('hud-canvas');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const IS_SMALL_SCREEN = Math.min(window.innerWidth, window.innerHeight) < 760;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_SMALL_SCREEN, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_SMALL_SCREEN ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -33,7 +35,7 @@ camera.position.set(0, 4, 16);
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.6);
 sun.position.set(-900, 1400, 500);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(IS_SMALL_SCREEN ? 1024 : 2048, IS_SMALL_SCREEN ? 1024 : 2048);
 sun.shadow.camera.left = -600;
 sun.shadow.camera.right = 600;
 sun.shadow.camera.top = 600;
@@ -51,6 +53,7 @@ scene.fog = new THREE.Fog(0xa9bccf, 1800, 11000);
 
 const assets = new AssetManager();
 const audio = new TacticalAudio();
+const loader = new LoadingScreen();
 const textures = {};
 const vfxTextures = {};
 let vfx;
@@ -59,6 +62,13 @@ let weapons;
 let ai;
 const hud = new CombatHUD(hudCanvas);
 let hangar = null;
+
+// Real asset progress (textures / models / HDR) drives the boot bar
+assets.onProgress = (url, loaded, total) => {
+  const name = url.split('/').filter(Boolean).pop() || url;
+  loader.setProgress(5 + (loaded / total) * 90, 'STREAMING MISSION ASSETS');
+  loader.logLine(`LOADED ${name} (${loaded}/${total})`);
+};
 
 // ---------------------------------------------------------------------------
 // App state
@@ -273,11 +283,16 @@ async function deploy() {
   els.deployBtn.disabled = true;
   els.deployBtn.textContent = 'DEPLOYING...';
   els.hangarUI.classList.add('hidden');
-  els.combatHUD.classList.remove('hidden');
-  hudCanvas.classList.remove('hidden');
+  els.combatHUD.classList.add('hidden');
+  hudCanvas.classList.add('hidden');
   if (hangar) hangar.setVisible(false);
+  loader.show('PREPARING DEPLOYMENT');
+  loader.setProgress(2, 'PREPARING DEPLOYMENT');
+  loader.logLine(`VEHICLE: ${state.vehicle.name.toUpperCase()}`);
+  loader.logLine(`AO: ${state.mission.title.split('//')[0].trim()}`);
   try {
     await assets.init();
+    loader.setProgress(8, 'COMPILING EFFECTS SYSTEM');
     if (!vfx) {
       Object.assign(textures, {
         asphaltDiff: await assets.loadTexture('/assets/textures/asphalt_03/asphalt_03_diff.jpg'),
@@ -291,6 +306,7 @@ async function deploy() {
         vfxTextures[key] = await assets.loadTexture(`/assets/vfx/${file}`);
       }
       vfx = new BattlefieldVFX(scene, vfxTextures);
+      loader.setProgress(18, 'BUILDING BATTLEFIELD');
       battlefield = new BattlefieldBuilder(scene, assets, vfx, audio);
       weapons = new WeaponSystem(scene, assets, vfx, audio, battlefield);
       ai = new CombinedArmsAI(scene, assets, weapons, vfx, audio);
@@ -300,6 +316,7 @@ async function deploy() {
       await battlefield.buildAll(textures);
       battlefield.built = true;
     }
+    loader.setProgress(72, 'STREAMING SKY & LIGHTING');
     scene.environment = await assets.loadHDRI(`/assets/hdri/${state.mission.hdri}_1k.hdr`);
     scene.background = scene.environment;
 
@@ -321,6 +338,7 @@ async function deploy() {
       state.player = new TankPhysicsModel(def, startPos, start.heading);
     }
 
+    loader.setProgress(82, 'ARMING VEHICLE');
     const playerRoot = createPlayerModel(def);
     state.player.root = playerRoot;
     state.player.id = 'player';
@@ -329,8 +347,10 @@ async function deploy() {
     state.player.category = cat;
     scene.add(playerRoot);
 
+    loader.setProgress(90, 'SPAWNING COMBATANTS');
     await ai.spawnBattle(m);
 
+    loader.setProgress(98, 'SORTIE READY');
     state.phase = 'sortie';
     state.kills = 0;
     state.cockpitView = false;
@@ -345,9 +365,16 @@ async function deploy() {
 
     audio.init();
     audio.startVehicleLoop(cat);
+    loader.setProgress(100, 'SORTIE LAUNCHED');
+    setTimeout(() => loader.hide(), 350);
   } catch (err) {
     console.error('Deployment failed:', err);
+    loader.setProgress(100, 'DEPLOYMENT FAILED — CHECK CONSOLE');
     pushEvent('DEPLOYMENT FAILED — CHECK CONSOLE');
+    setTimeout(() => {
+      loader.hide();
+      els.hangarUI.classList.remove('hidden');
+    }, 1200);
   } finally {
     els.deployBtn.disabled = false;
     els.deployBtn.textContent = 'LAUNCH SORTIE / DEPLOY';
@@ -422,23 +449,37 @@ window.addEventListener('pointerdown', () => audio.init(), { once: true });
 // Combat helpers
 // ---------------------------------------------------------------------------
 
-function playerForward() {
-  return new THREE.Vector3(0, 0, -1).applyQuaternion(state.player.quat);
+// Scratch objects reused every frame — allocating in the tick loop causes
+// garbage-collection pauses (the periodic mid-sortie stutter)
+const _fwd = new THREE.Vector3();
+const _fwd2 = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _tmp = new THREE.Vector3();
+const _tmp2 = new THREE.Vector3();
+const _sunOffset = new THREE.Vector3(-900, 1400, 500);
+const _playerAsUnit = { id: 'player', team: 'blue' };
+const _unitsBuf = [null];
+const SUN_OFFSET = new THREE.Vector3(-900, 1400, 500);
+
+function playerForward(out = _fwd) {
+  return out.set(0, 0, -1).applyQuaternion(state.player.quat);
 }
 
-function playerMuzzle() {
-  return state.player.pos.clone().addScaledVector(playerForward(), 8);
+function playerMuzzle(out = _tmp2) {
+  return out.copy(state.player.pos).addScaledVector(playerForward(_fwd2), 8);
 }
 
 function acquireTarget() {
   let best = null;
   let bestScore = Infinity;
+  const pp = state.player.pos;
+  playerForward(_fwd2);
   for (const u of ai.units) {
     if (!u.alive || u.team === 'blue') continue;
-    const to = u.pos.clone().sub(state.player.pos);
-    const dist = to.length();
+    _tmp.copy(u.pos).sub(pp);
+    const dist = _tmp.length();
     if (dist > 3500) continue;
-    const align = to.normalize().dot(playerForward());
+    const align = _tmp.divideScalar(dist || 1).dot(_fwd2);
     if (align < 0.93) continue;
     const score = dist * (2 - align);
     if (score < bestScore) { bestScore = score; best = u; }
@@ -570,40 +611,51 @@ function onPlayerDamage(dmg, sourcePos) {
 // Camera & HUD update
 // ---------------------------------------------------------------------------
 
+function collectUnits() {
+  const out = _unitsBuf;
+  out.length = 0;
+  if (state.player && state.player.alive) out.push(state.player);
+  for (const u of ai.units) if (u && u.alive) out.push(u);
+  return out;
+}
+
 function updateCamera(dt) {
   const p = state.player;
   if (!p) return;
   const cat = p.category;
 
   if (cat === 'tank' && state.gunnerOptics) {
-    const muzzle = playerMuzzle();
-    camera.position.copy(p.pos).add(new THREE.Vector3(0, 3.1, 0));
-    const aimDir = playerForward();
-    camera.lookAt(p.pos.clone().addScaledVector(aimDir, 300));
+    playerMuzzle(_tmp2);
+    camera.position.copy(p.pos).add(_tmp.set(0, 3.1, 0));
+    camera.lookAt(_tmp2.copy(p.pos).addScaledVector(playerForward(_fwd), 300));
     camera.fov = 18;
   } else if (cat !== 'tank' && state.cockpitView) {
-    camera.position.copy(p.pos).addScaledVector(playerForward(), 3.2).add(new THREE.Vector3(0, 0.9, 0));
-    const look = p.pos.clone().addScaledVector(playerForward(), 60);
+    camera.position.copy(p.pos).addScaledVector(playerForward(_fwd), 3.2).add(_tmp.set(0, 0.9, 0));
     camera.up.set(0, 1, 0).applyQuaternion(p.quat);
-    camera.lookAt(look);
+    camera.lookAt(_tmp2.copy(p.pos).addScaledVector(playerForward(_fwd2), 60));
     camera.fov = 70;
   } else {
-    const back = playerForward().multiplyScalar(cat === 'tank' ? 14 : 22);
-    const desired = p.pos.clone().sub(back).add(new THREE.Vector3(0, cat === 'tank' ? 6 : 7, 0));
-    const gY = getTerrainHeight(desired.x, desired.z) + 2.5;
-    if (desired.y < gY) desired.y = gY;
-    camera.position.lerp(desired, 1 - Math.exp(-7 * dt));
+    const back = playerForward(_fwd).multiplyScalar(cat === 'tank' ? 14 : 22);
+    _tmp2.copy(p.pos).sub(back).add(_tmp.set(0, cat === 'tank' ? 6 : 7, 0));
+    const gY = getTerrainHeight(_tmp2.x, _tmp2.z) + 2.5;
+    if (_tmp2.y < gY) _tmp2.y = gY;
+    camera.position.lerp(_tmp2, 1 - Math.exp(-7 * dt));
     camera.up.set(0, 1, 0);
-    camera.lookAt(p.pos.clone().addScaledVector(playerForward(), 25));
+    camera.lookAt(_tmp.copy(p.pos).addScaledVector(playerForward(_fwd2), 25));
     camera.fov = cat === 'tank' ? 58 : 66;
   }
   camera.updateProjectionMatrix();
 }
 
-function updateHUD() {
+let hudTimer = 0;
+function updateHUD(dt) {
   const p = state.player;
   const a = playerAmmo();
-  const pct = (v) => `${Math.max(0, Math.round((v / a.flare ? 0 : 1) * 100))}`;
+
+  // DOM writes every frame cause layout thrash; 10 Hz is plenty for readouts
+  hudTimer += dt;
+  if (hudTimer < 0.1) return;
+  hudTimer = 0;
 
   els.hud.hpFill.style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
   els.hud.hpText.textContent = `${Math.max(0, Math.round((p.hp / p.maxHp) * 100))}%`;
@@ -622,7 +674,9 @@ function updateHUD() {
 
   els.hud.pillCam.textContent = `[V] CAM: ${state.cockpitView ? 'COCKPIT' : state.camMode.toUpperCase()}`;
   els.hud.kills.textContent = state.kills;
-  els.hud.hostiles.textContent = ai.units.filter((u) => u.alive && u.team === 'red').length;
+  let hostiles = 0;
+  for (const u of ai.units) if (u.alive && u.team === 'red') hostiles++;
+  els.hud.hostiles.textContent = hostiles;
 
   els.hud.ammo.cannon.textContent = ammoState.cannon;
   els.hud.ammo.sec1.textContent = ammoState.sec1;
@@ -649,6 +703,8 @@ async function init() {
   renderMissionList();
   updateSpecCard();
   renderer.setAnimationLoop(tick);
+  loader.setProgress(100, 'SYSTEMS ONLINE');
+  setTimeout(() => loader.hide(), 300);
 }
 
 function tick() {
@@ -692,7 +748,7 @@ function tick() {
       : Math.max(0, state.lockProgress - dt * 2);
 
     playerFire(dt);
-    audio.updateListener(p.pos, playerForward(), new THREE.Vector3(0, 1, 0).applyQuaternion(p.quat));
+    audio.updateListener(p.pos, playerForward(_fwd), _up.set(0, 1, 0).applyQuaternion(p.quat));
     audio.updateVehicleLoop(dt, {
       throttle: p.throttle ?? Math.abs(p.speed ?? 0),
       afterburner: p.afterburner,
@@ -700,11 +756,22 @@ function tick() {
       mach: p.mach ?? 0,
     });
     sun.target.position.copy(p.pos);
-    sun.position.copy(p.pos).add(new THREE.Vector3(-900, 1400, 500));
+    sun.position.copy(p.pos).add(_sunOffset.copy(SUN_OFFSET));
   }
 
-  weapons.update(dt, [p, ...ai.units].filter(Boolean), onUnitDamage, (msg) => pushEvent(msg));
-  ai.update(dt, p && p.alive ? { ...p, id: 'player', team: 'blue' } : null);
+  weapons.update(dt, collectUnits(), onUnitDamage, (msg) => pushEvent(msg));
+  if (p && p.alive) {
+    _playerAsUnit.pos = p.pos;
+    _playerAsUnit.vel = p.vel;
+    _playerAsUnit.quat = p.quat;
+    _playerAsUnit.alive = true;
+    _playerAsUnit.category = p.category;
+    _playerAsUnit.hitRadius = p.hitRadius;
+    _playerAsUnit.hp = p.hp;
+    ai.update(dt, _playerAsUnit);
+  } else {
+    ai.update(dt, null);
+  }
   battlefield.update(dt);
   vfx.update(dt);
 
@@ -737,7 +804,7 @@ function tick() {
       gunnerOptics: state.gunnerOptics,
       selectedWeapon: state.selectedWeapon,
     });
-    updateHUD();
+    updateHUD(dt);
   }
 
   renderer.render(scene, camera);
